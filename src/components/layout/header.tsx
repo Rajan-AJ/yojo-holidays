@@ -2,33 +2,30 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { mainNav, primaryCta } from "@/config/site";
 import { cn } from "@/lib/cn";
-import { buttonClasses } from "@/components/ui/button-link";
+import { ButtonLink } from "@/components/ui/button";
 import { Wordmark } from "./wordmark";
+import { MobileMenu } from "./mobile-menu";
 
 /** Pages whose first section is a full-bleed hero the header can float over. */
 const OVERLAY_ROUTES = new Set(["/"]);
+
+/** Distance scrolled before the header turns solid. */
+const SOLID_AFTER_PX = 32;
 
 export function Header() {
   const pathname = usePathname();
   const canOverlay = OVERLAY_ROUTES.has(pathname);
   const [scrolled, setScrolled] = useState(false);
-  const menuRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
+    const onScroll = () => setScrolled(window.scrollY > SOLID_AFTER_PX);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-
-  // With Cache Components, routes stay mounted (hidden) after navigation,
-  // so explicitly close the menu whenever the path changes.
-  useEffect(() => {
-    menuRef.current?.close();
-  }, [pathname]);
 
   const transparent = canOverlay && !scrolled;
 
@@ -36,24 +33,32 @@ export function Header() {
     <>
       <a
         href="#main"
-        className="sr-only z-[60] rounded bg-ink px-4 py-2 text-canvas focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+        className="sr-only z-60 rounded-card bg-ink px-4 py-2 text-canvas focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
       >
         Skip to content
       </a>
 
       <header
         className={cn(
-          "fixed inset-x-0 top-0 z-50 transition-[background-color,color,border-color] duration-500 ease-(--ease-editorial)",
+          "fixed inset-x-0 top-0 z-50 transition-[background-color,color,box-shadow] duration-(--duration-slow) ease-(--ease-editorial)",
           transparent
-            ? "border-b border-transparent bg-transparent text-white"
-            : "border-b border-line bg-canvas/95 text-ink backdrop-blur-md",
+            ? "on-dark bg-transparent text-white"
+            : "bg-canvas/95 text-ink shadow-header backdrop-blur-md",
         )}
       >
-        <div className="mx-auto flex h-(--spacing-header) w-full max-w-(--container-site) items-center justify-between gap-6 px-5 sm:px-8 lg:px-12">
+        {/* Soft top shade so white text stays legible over bright sky in the hero. */}
+        <div
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute inset-x-0 top-0 -z-10 h-32 bg-linear-to-b from-ink/35 to-transparent transition-opacity duration-(--duration-slow)",
+            transparent ? "opacity-100" : "opacity-0",
+          )}
+        />
+        <div className="mx-auto flex h-header w-full max-w-wide items-center justify-between gap-6 px-gutter">
           <Wordmark />
 
           <nav aria-label="Main" className="hidden lg:block">
-            <ul className="flex items-center gap-9">
+            <ul className="flex items-center gap-6 xl:gap-9">
               {mainNav.map((item) => {
                 const active = pathname.startsWith(item.href);
                 return (
@@ -62,8 +67,11 @@ export function Header() {
                       href={item.href}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "text-sm tracking-wide transition-opacity hover:opacity-100",
-                        active ? "opacity-100" : "opacity-75",
+                        "relative py-2 text-nav transition-opacity duration-(--duration-base) hover:opacity-100",
+                        "after:absolute after:inset-x-0 after:-bottom-0.5 after:h-px after:origin-left after:bg-current after:transition-transform after:duration-(--duration-base) after:ease-(--ease-editorial)",
+                        active
+                          ? "opacity-100 after:scale-x-100"
+                          : "opacity-80 after:scale-x-0 hover:after:scale-x-100",
                       )}
                     >
                       {item.label}
@@ -74,77 +82,21 @@ export function Header() {
             </ul>
           </nav>
 
-          <div className="flex items-center gap-3">
-            <Link
-              href={primaryCta.href}
-              className={cn(
-                buttonClasses(transparent ? "ghost-light" : "primary"),
-                "hidden min-h-10 sm:inline-flex",
-              )}
-            >
-              {primaryCta.label}
-            </Link>
-
-            <button
-              type="button"
-              className="-mr-2 inline-flex size-11 items-center justify-center lg:hidden"
-              aria-haspopup="dialog"
-              aria-controls="mobile-menu"
-              onClick={() => menuRef.current?.showModal()}
-            >
-              <span className="sr-only">Open menu</span>
-              <svg aria-hidden="true" width="22" height="22" viewBox="0 0 22 22" fill="none">
-                <path d="M2 7h18M2 15h18" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
-            </button>
+          <div className="flex items-center gap-2">
+            {/* Wrapper owns the visibility so it can't clash with the button's own display. */}
+            <div className="hidden sm:block">
+              <ButtonLink
+                href={primaryCta.href}
+                variant={transparent ? "outline-inverse" : "primary"}
+                size="sm"
+              >
+                {primaryCta.label}
+              </ButtonLink>
+            </div>
+            <MobileMenu pathname={pathname} />
           </div>
         </div>
       </header>
-
-      {/* Native <dialog> gives focus trapping, Esc to close and inert background for free. */}
-      <dialog
-        id="mobile-menu"
-        ref={menuRef}
-        aria-label="Menu"
-        className="m-0 h-dvh max-h-none w-full max-w-none bg-canvas text-ink backdrop:bg-ink/40 lg:hidden"
-      >
-        <div className="flex h-(--spacing-header) items-center justify-between px-5 sm:px-8">
-          <Wordmark />
-          <button
-            type="button"
-            className="-mr-2 inline-flex size-11 items-center justify-center"
-            onClick={() => menuRef.current?.close()}
-          >
-            <span className="sr-only">Close menu</span>
-            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M3 3l14 14M17 3L3 17" stroke="currentColor" strokeWidth="1.5" />
-            </svg>
-          </button>
-        </div>
-
-        <nav aria-label="Mobile" className="px-5 pt-8 sm:px-8">
-          <ul className="divide-y divide-line border-y border-line">
-            {mainNav.map((item) => (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  onClick={() => menuRef.current?.close()}
-                  className="block py-5 font-serif text-3xl"
-                >
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <Link
-            href={primaryCta.href}
-            onClick={() => menuRef.current?.close()}
-            className={cn(buttonClasses("primary"), "mt-10 w-full")}
-          >
-            {primaryCta.label}
-          </Link>
-        </nav>
-      </dialog>
     </>
   );
 }

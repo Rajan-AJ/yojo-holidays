@@ -1,11 +1,21 @@
-// Yojo Holidays - initial data model (Phase 1)
+// Yojo Holidays - data model (Phase 3: database + content architecture)
+//
+// Content graph:
+//   Region -> Country -> Destination -> TourPackage -> ItineraryDay / PackageHotel -> Hotel
+//   Country (destination) + Country (passport) -> VisaCountry -> VisaType -> VisaRequirement (documents)
+//                                                                           -> VisaProcessStep (how to apply)
+//   Destination / Country -> TravelGuide
+//   FAQ attaches to exactly one owner (package, destination, country, guide, visa country, visa type)
+//   or to none (site-wide FAQ page / homepage).
 //
 // Principles:
-// - Normalised, but only as deep as current requirements need.
-// - All public content has a slug, a publish status and SEO fields.
-// - Nothing about packages, itineraries, visas or guides is hard-coded in the UI.
-// - `isSample` marks development seed data so it can never be mistaken for real
-//   client content (prices, reviews) and can be purged before launch.
+// - Public URLs use slugs only; ids never appear in URLs.
+// - Every public content entity has a PublishStatus and an optional one-to-one SeoMeta row.
+// - Images are Media rows referenced by id, so alt text lives in one place.
+// - `isSample` marks development seed data. It is excluded from public queries in
+//   production (see src/server/repositories/shared.ts) and can be purged before launch.
+// - Database CHECK constraints (in the migration SQL) back up app-level validation
+//   for ratings, durations, prices and FAQ ownership.
 //
 // The database URL is configured in prisma.config.ts (Prisma 7 style).
 
@@ -33,19 +43,17 @@ enum PublishStatus {
   ARCHIVED
 }
 
+/// Drives the URL segment: /domestic-tours/... or /international-tours/...
 enum TourScope {
   DOMESTIC
   INTERNATIONAL
 }
 
-enum Region {
-  INDIA
-  ASIA
-  MIDDLE_EAST
-  EUROPE
-  AFRICA
-  AMERICAS
-  OCEANIA
+enum DestinationType {
+  COUNTRY // Vietnam
+  REGION // Kerala, Northern Vietnam
+  CITY // Hanoi, Tokyo
+  PLACE // Ha Long Bay, Mount Fuji
 }
 
 enum VisaPurpose {
@@ -55,7 +63,8 @@ enum VisaPurpose {
   FAMILY_VISIT
 }
 
-enum VisaRequirementKind {
+/// What kind of permission a visa type is (shown as "Visa required?").
+enum VisaEligibilityKind {
   VISA_FREE
   VISA_ON_ARRIVAL
   E_VISA
@@ -74,8 +83,9 @@ enum GuideCategory {
 }
 
 enum FaqPlacement {
-  GENERAL // shown on the FAQ page
+  DEFAULT // shown with its owner (or on the FAQ page when it has none)
   HOMEPAGE // also shown on the homepage
+  VISA // general visa questions, shown on /visa/
 }
 
 enum ReviewStatus {
@@ -93,21 +103,18 @@ enum LeadStatus {
   LOST
 }
 
-enum EnquiryType {
-  PLAN_TRIP
-  PACKAGE
-  VISA_ASSISTANCE
-  CUSTOM_TRIP
-  CONTACT
+enum EnquiryStatus {
+  NEW
+  IN_PROGRESS
+  RESOLVED
+  SPAM
 }
 
 // ---------------------------------------------------------------------------
-// Auth / admin
+// Auth / admin (authentication itself arrives in a later phase)
 // ---------------------------------------------------------------------------
 
-// A single User model covers admins and editors via `role`.
-// (The brief listed User and Admin separately; one table with a role avoids
-// duplicated auth logic. Authors of travel guides are also Users.)
+// One User model covers admins and editors via `role`. Guide authors are Users.
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -136,17 +143,19 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([expiresAt])
 }
 
 // ---------------------------------------------------------------------------
-// Media
+// Media + SEO (shared by all content)
 // ---------------------------------------------------------------------------
 
 model Media {
   id         String   @id @default(cuid())
   url        String
   storageKey String? // key in object storage (e.g. Vercel Blob / S3)
-  alt        String // required: every image needs descriptive alt text
+  altText    String // required: every image needs a description
+  title      String?
   caption    String?
   credit     String?
   width      Int?
@@ -156,147 +165,229 @@ model Media {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  destinationHeroes Destination[]        @relation("DestinationHero")
-  packageHeroes     TourPackage[]        @relation("PackageHero")
-  packageGallery    PackageGalleryItem[]
-  itineraryImages   ItineraryDayImage[]
-  hotelImages       Hotel[]
-  guideImages       TravelGuide[]
-  reviewPhotos      Review[]
-  visaCountryImages VisaCountry[]
+  regions           Region[]           @relation("RegionImage")
+  countries         Country[]          @relation("CountryImage")
+  destinations      Destination[]      @relation("DestinationImage")
+  destinationImages DestinationImage[]
+  categories        TourCategory[]     @relation("CategoryImage")
+  packages          TourPackage[]      @relation("PackageImage")
+  packageImages     PackageImage[]
+  itineraryDays     ItineraryDay[]
+  hotels            Hotel[]
+  visaCountries     VisaCountry[]
+  guides            TravelGuide[]
+  reviews           Review[]
+  seoMeta           SeoMeta[]
+}
+
+// Optional per-page SEO overrides. One row per content entity (one-to-one).
+// When absent, pages derive title/description from the content itself.
+model SeoMeta {
+  id              String   @id @default(cuid())
+  seoTitle        String?
+  metaDescription String?
+  canonicalUrl    String? // only when it differs from the page's own URL
+  ogTitle         String?
+  ogDescription   String?
+  ogImageId       String?
+  noIndex         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  ogImage Media? @relation(fields: [ogImageId], references: [id], onDelete: SetNull)
+
+  region      Region?
+  country     Country?
+  destination Destination?
+  category    TourCategory?
+  package     TourPackage?
+  visaCountry VisaCountry?
+  guide       TravelGuide?
 }
 
 // ---------------------------------------------------------------------------
 // Geography
 // ---------------------------------------------------------------------------
 
+// Asia, Southeast Asia (parent: Asia), Middle East, Europe, India...
+model Region {
+  id          String        @id @default(cuid())
+  name        String        @unique
+  slug        String        @unique
+  description String?
+  parentId    String?
+  imageId     String?
+  sortOrder   Int           @default(0)
+  status      PublishStatus @default(DRAFT)
+  seoId       String?       @unique
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  parent    Region?   @relation("RegionTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Region[]  @relation("RegionTree")
+  image     Media?    @relation("RegionImage", fields: [imageId], references: [id], onDelete: SetNull)
+  seo       SeoMeta?  @relation(fields: [seoId], references: [id], onDelete: SetNull)
+  countries Country[]
+
+  @@index([parentId])
+  @@index([status, sortOrder])
+}
+
 model Country {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  slug      String   @unique
-  isoCode   String   @unique @db.Char(2) // ISO 3166-1 alpha-2
-  region    Region
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String        @id @default(cuid())
+  name             String        @unique
+  slug             String        @unique // also the visa URL: /visa/{slug}/
+  isoCode          String        @unique @db.Char(2) // ISO 3166-1 alpha-2
+  regionId         String
+  shortDescription String?
+  description      String?
+  featuredImageId  String?
+  status           PublishStatus @default(DRAFT)
+  seoId            String?       @unique
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
-  destinations         Destination[]
-  visaCountry          VisaCountry? // visa info FOR travelling to this country
-  passportRequirements VisaRequirement[] @relation("PassportCountry")
+  region             Region        @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  featuredImage      Media?        @relation("CountryImage", fields: [featuredImageId], references: [id], onDelete: SetNull)
+  seo                SeoMeta?      @relation(fields: [seoId], references: [id], onDelete: SetNull)
+  destinations       Destination[]
+  hotels             Hotel[]
+  demonym            String? // "Indian": used in "Vietnam Visa for Indian Travellers"
+  visaGuides         VisaCountry[] @relation("VisaDestination") // visa info FOR travelling to this country
+  passportVisaGuides VisaCountry[] @relation("VisaPassport") // visa info for holders of this passport
+  guides             TravelGuide[]
+  faqs               FAQ[]
+
+  @@index([regionId])
+  @@index([status])
 }
 
-// A Destination is what travellers browse: a country (Vietnam) or an Indian
-// state/region (Kerala, Kashmir). URL: /{scope}-tours/{slug}/
+// What travellers browse: a whole country, a region, a city or a specific place.
+// URL: /{scope}-tours/{slug}/  (slug is globally unique)
 model Destination {
-  id              String        @id @default(cuid())
-  name            String
-  slug            String        @unique
-  scope           TourScope
-  countryId       String
-  tagline         String?
-  overview        String? // answer-first intro paragraph
-  bestTimeToVisit String?
-  idealDuration   String?
-  heroImageId     String?
-  isFeatured      Boolean       @default(false)
-  sortOrder       Int           @default(0)
-  status          PublishStatus @default(DRAFT)
-  seoTitle        String?
-  metaDescription String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id               String          @id @default(cuid())
+  name             String
+  slug             String          @unique
+  type             DestinationType
+  scope            TourScope
+  countryId        String
+  parentId         String? // Hanoi -> Vietnam
+  shortDescription String? // card / answer-first summary
+  description      String?
+  bestTimeToVisit  String?
+  averageDuration  String? // e.g. "6 to 8 days"
+  featuredImageId  String?
+  isFeatured       Boolean         @default(false)
+  isSample         Boolean         @default(false)
+  sortOrder        Int             @default(0)
+  status           PublishStatus   @default(DRAFT)
+  seoId            String?         @unique
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
-  country   Country       @relation(fields: [countryId], references: [id])
-  heroImage Media?        @relation("DestinationHero", fields: [heroImageId], references: [id], onDelete: SetNull)
-  cities    City[]
-  packages  TourPackage[]
-  guides    TravelGuide[]
-  faqs      FAQ[]
-  reviews   Review[]
+  country       Country            @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  parent        Destination?       @relation("DestinationTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children      Destination[]      @relation("DestinationTree")
+  featuredImage Media?             @relation("DestinationImage", fields: [featuredImageId], references: [id], onDelete: SetNull)
+  seo           SeoMeta?           @relation(fields: [seoId], references: [id], onDelete: SetNull)
+  gallery       DestinationImage[]
+  related       Destination[]      @relation("RelatedDestinations")
+  relatedBy     Destination[]      @relation("RelatedDestinations")
+  packages      TourPackage[]
+  itineraryDays ItineraryDay[]
+  guides        TravelGuide[]
+  faqs          FAQ[]
+  reviews       Review[]
 
-  @@index([scope, status])
   @@index([countryId])
+  @@index([parentId])
+  @@index([scope, status])
+  @@index([isFeatured, status])
 }
 
-model City {
-  id            String   @id @default(cuid())
-  name          String
-  slug          String
+model DestinationImage {
+  id            String @id @default(cuid())
   destinationId String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  mediaId       String
+  sortOrder     Int    @default(0)
 
-  destination   Destination    @relation(fields: [destinationId], references: [id], onDelete: Cascade)
-  hotels        Hotel[]
-  itineraryDays ItineraryDay[]
+  destination Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+  media       Media       @relation(fields: [mediaId], references: [id], onDelete: Cascade)
 
-  @@unique([destinationId, slug])
+  @@unique([destinationId, mediaId])
 }
 
 // ---------------------------------------------------------------------------
 // Tours
 // ---------------------------------------------------------------------------
 
-// Travel styles: Family, Honeymoon, Group, Senior Citizen, Women's, Luxury...
+// Travel styles: Family, Honeymoon, Group, Senior Citizen, Women's, Luxury, Custom.
+// Domestic/International is NOT a category: it comes from Destination.scope,
+// so a package can never be filed under the wrong one.
 model TourCategory {
-  id              String        @id @default(cuid())
-  name            String        @unique
-  slug            String        @unique
-  description     String?
-  sortOrder       Int           @default(0)
-  status          PublishStatus @default(DRAFT)
-  seoTitle        String?
-  metaDescription String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id          String        @id @default(cuid())
+  name        String        @unique
+  slug        String        @unique // /tours/{slug}/
+  description String?
+  imageId     String?
+  sortOrder   Int           @default(0)
+  status      PublishStatus @default(DRAFT)
+  seoId       String?       @unique
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
-  packages TourPackage[]
+  image    Media?        @relation("CategoryImage", fields: [imageId], references: [id], onDelete: SetNull)
+  seo      SeoMeta?      @relation(fields: [seoId], references: [id], onDelete: SetNull)
+  packages TourPackage[] // many-to-many: a trip can be Family AND Group
+
+  @@index([status, sortOrder])
 }
 
 model TourPackage {
   id               String        @id @default(cuid())
   name             String
-  slug             String // unique within a destination: /international-tours/vietnam/{slug}/
+  slug             String // unique within its destination: /international-tours/vietnam/{slug}/
   destinationId    String
+  shortDescription String? // card summary
+  description      String?
   durationDays     Int
   durationNights   Int
   startingPrice    Decimal?      @db.Decimal(12, 2) // per person; null = "price on request"
   currency         String        @default("INR") @db.Char(3)
   priceNote        String? // e.g. "per person, twin sharing"
-  summary          String? // short highlight for cards
-  description      String?
-  mealsSummary     String?
-  transportSummary String?
   importantInfo    String?
-  heroImageId      String?
+  featuredImageId  String?
   visaCountryId    String? // links the package to the relevant visa page
   isFeatured       Boolean       @default(false)
-  isSample         Boolean       @default(false) // development data only
+  isSample         Boolean       @default(false)
+  sortOrder        Int           @default(0)
   status           PublishStatus @default(DRAFT)
   publishedAt      DateTime?
-  seoTitle         String?
-  metaDescription  String?
+  seoId            String?       @unique
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  destination   Destination          @relation(fields: [destinationId], references: [id])
-  heroImage     Media?               @relation("PackageHero", fields: [heroImageId], references: [id], onDelete: SetNull)
-  visaCountry   VisaCountry?         @relation(fields: [visaCountryId], references: [id], onDelete: SetNull)
+  destination   Destination        @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+  featuredImage Media?             @relation("PackageImage", fields: [featuredImageId], references: [id], onDelete: SetNull)
+  visaCountry   VisaCountry?       @relation(fields: [visaCountryId], references: [id], onDelete: SetNull)
+  seo           SeoMeta?           @relation(fields: [seoId], references: [id], onDelete: SetNull)
   categories    TourCategory[]
+  gallery       PackageImage[]
   highlights    PackageHighlight[]
   itineraryDays ItineraryDay[]
   hotels        PackageHotel[]
   inclusions    PackageInclusion[]
   exclusions    PackageExclusion[]
-  gallery       PackageGalleryItem[]
   faqs          FAQ[]
   reviews       Review[]
-  enquiries     Enquiry[]
+  leads         Lead[]
 
   @@unique([destinationId, slug])
   @@index([status, isFeatured])
+  @@index([status, publishedAt])
 }
 
-model PackageGalleryItem {
+model PackageImage {
   id        String @id @default(cuid())
   packageId String
   mediaId   String
@@ -309,342 +400,365 @@ model PackageGalleryItem {
 }
 
 model PackageHighlight {
-  id        String @id @default(cuid())
-  packageId String
-  text      String
-  sortOrder Int    @default(0)
+  id          String  @id @default(cuid())
+  packageId   String
+  title       String // "Overnight Ha Long Bay cruise"
+  description String?
+  icon        String? // optional visual identifier, e.g. "cruise"
+  sortOrder   Int     @default(0)
 
   package TourPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
 
-  @@index([packageId])
+  @@index([packageId, sortOrder])
 }
 
+// One row per day. dayNumber is unique within a package and orders the days.
 model ItineraryDay {
-  id                String  @id @default(cuid())
-  packageId         String
-  dayNumber         Int
-  title             String
-  description       String?
-  morning           String?
-  afternoon         String?
-  evening           String?
-  includesBreakfast Boolean @default(false)
-  includesLunch     Boolean @default(false)
-  includesDinner    Boolean @default(false)
-  cityId            String? // where the traveller is that day (also drives the scroll imagery)
-  hotelId           String? // overnight stay
+  id                  String   @id @default(cuid())
+  packageId           String
+  dayNumber           Int
+  title               String
+  description         String?
+  morningActivities   String?
+  afternoonActivities String?
+  eveningActivities   String?
+  breakfast           Boolean  @default(false)
+  lunch               Boolean  @default(false)
+  dinner              Boolean  @default(false)
+  destinationId       String? // where the traveller is that day (drives the scroll imagery)
+  hotelId             String? // overnight stay, when it is a known Hotel
+  accommodationNote   String? // when it isn't: "Overnight on the cruise", "Flight home"
+  imageId             String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  package TourPackage         @relation(fields: [packageId], references: [id], onDelete: Cascade)
-  city    City?               @relation(fields: [cityId], references: [id], onDelete: SetNull)
-  hotel   Hotel?              @relation(fields: [hotelId], references: [id], onDelete: SetNull)
-  images  ItineraryDayImage[]
+  package     TourPackage  @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  destination Destination? @relation(fields: [destinationId], references: [id], onDelete: SetNull)
+  hotel       Hotel?       @relation(fields: [hotelId], references: [id], onDelete: SetNull)
+  image       Media?       @relation(fields: [imageId], references: [id], onDelete: SetNull)
 
   @@unique([packageId, dayNumber])
-}
-
-model ItineraryDayImage {
-  id        String @id @default(cuid())
-  dayId     String
-  mediaId   String
-  sortOrder Int    @default(0)
-
-  day   ItineraryDay @relation(fields: [dayId], references: [id], onDelete: Cascade)
-  media Media        @relation(fields: [mediaId], references: [id], onDelete: Cascade)
-
-  @@unique([dayId, mediaId])
 }
 
 model Hotel {
   id          String   @id @default(cuid())
   name        String
   slug        String   @unique
-  cityId      String?
-  starRating  Int? // official category (1-5), not a review score
+  city        String?
+  countryId   String?
   description String?
+  starRating  Int? // official category (1-5), not a review score
   website     String?
   imageId     String?
+  isSample    Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  city          City?          @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  country       Country?       @relation(fields: [countryId], references: [id], onDelete: SetNull)
   image         Media?         @relation(fields: [imageId], references: [id], onDelete: SetNull)
   packages      PackageHotel[]
   itineraryDays ItineraryDay[]
+
+  @@index([countryId])
 }
 
+// Which hotels a package uses, for how long. The same hotel may appear twice
+// (e.g. back in Hanoi at the end), so there is no unique(packageId, hotelId).
 model PackageHotel {
   id        String  @id @default(cuid())
   packageId String
   hotelId   String
+  city      String? // display override, e.g. "Hanoi (return)"
   nights    Int     @default(1)
   roomType  String?
+  mealPlan  String? // e.g. "Breakfast included"
   isOption  Boolean @default(false) // "or similar" alternative
   sortOrder Int     @default(0)
 
   package TourPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
-  hotel   Hotel       @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  hotel   Hotel       @relation(fields: [hotelId], references: [id], onDelete: Restrict)
 
-  @@unique([packageId, hotelId])
+  @@index([packageId, sortOrder])
+  @@index([hotelId])
 }
 
 model PackageInclusion {
-  id        String @id @default(cuid())
-  packageId String
-  text      String
-  sortOrder Int    @default(0)
+  id          String  @id @default(cuid())
+  packageId   String
+  title       String
+  description String?
+  sortOrder   Int     @default(0)
 
   package TourPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
 
-  @@index([packageId])
+  @@index([packageId, sortOrder])
 }
 
 model PackageExclusion {
-  id        String @id @default(cuid())
-  packageId String
-  text      String
-  sortOrder Int    @default(0)
+  id          String  @id @default(cuid())
+  packageId   String
+  title       String
+  description String?
+  sortOrder   Int     @default(0)
 
   package TourPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
 
-  @@index([packageId])
+  @@index([packageId, sortOrder])
 }
 
 // ---------------------------------------------------------------------------
 // Visa
 // ---------------------------------------------------------------------------
 
-// Visa information for travelling TO a country. URL: /visa/{slug}/
+// Visa information for travelling TO a country, for holders of ONE passport
+// (requirements differ by passport). Unique per destination + passport.
+// URL: /visa/{country.slug}/ for the default passport (src/config/site.ts).
 model VisaCountry {
-  id              String        @id @default(cuid())
-  countryId       String        @unique
-  slug            String        @unique
-  shortAnswer     String? // answer-first summary, e.g. "Yes, Indians need an e-visa for Vietnam."
-  overview        String?
-  importantNotes  String?
-  heroImageId     String?
-  lastVerifiedAt  DateTime? // visa rules change; show "information last checked" on the page
-  sourceUrl       String? // official government source used for verification
-  status          PublishStatus @default(DRAFT)
-  seoTitle        String?
-  metaDescription String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id                String        @id @default(cuid())
+  countryId         String
+  passportCountryId String
+  shortAnswer       String? // answer-first summary for AEO
+  description       String?
+  importantNotes    String?
+  featuredImageId   String?
+  lastVerifiedAt    DateTime? // visa rules change; pages show "last checked"
+  sourceUrl         String? // official source used for verification
+  isSample          Boolean       @default(false)
+  status            PublishStatus @default(DRAFT)
+  seoId             String?       @unique
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
-  country   Country       @relation(fields: [countryId], references: [id])
-  heroImage Media?        @relation(fields: [heroImageId], references: [id], onDelete: SetNull)
-  visaTypes VisaType[]
-  faqs      VisaFAQ[]
-  packages  TourPackage[]
+  country         Country       @relation("VisaDestination", fields: [countryId], references: [id], onDelete: Cascade)
+  passportCountry Country       @relation("VisaPassport", fields: [passportCountryId], references: [id], onDelete: Restrict)
+  featuredImage   Media?        @relation(fields: [featuredImageId], references: [id], onDelete: SetNull)
+  seo             SeoMeta?      @relation(fields: [seoId], references: [id], onDelete: SetNull)
+  visaTypes       VisaType[]
+  packages        TourPackage[]
+  faqs            FAQ[]
+
+  @@unique([countryId, passportCountryId])
+  @@index([passportCountryId, status])
+  @@index([status])
 }
 
-// e.g. "Vietnam Tourist e-Visa", "Japan Business Visa"
+// Tourist e-Visa, Business Visa, Transit Visa...
 model VisaType {
-  id                 String      @id @default(cuid())
-  visaCountryId      String
-  name               String
-  slug               String
-  purpose            VisaPurpose
-  eligibility        String?
-  processingTime     String? // free text: "3-5 working days"
-  validity           String?
-  maxStay            String?
-  entries            String? // "Single" / "Multiple"
-  governmentFee      Decimal?    @db.Decimal(12, 2)
-  feeCurrency        String?     @db.Char(3)
-  feeNotes           String?
-  applicationProcess String? // ordered steps (markdown)
-  sortOrder          Int         @default(0)
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  id             String               @id @default(cuid())
+  visaCountryId  String
+  name           String
+  slug           String
+  purpose        VisaPurpose
+  kind           VisaEligibilityKind? // e-Visa, visa on arrival...; null = not verified yet
+  description    String?
+  eligibility    String?
+  processingTime String? // free text: "3-5 working days"
+  validity       String?
+  maxStay        String?
+  entries        String? // "Single" / "Multiple"
+  fee            Decimal?             @db.Decimal(12, 2) // government fee; null = not published / varies
+  currency       String?              @db.Char(3)
+  feeNotes       String?
+  importantNotes String?
+  sortOrder      Int                  @default(0)
+  status         PublishStatus        @default(DRAFT)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 
   visaCountry  VisaCountry       @relation(fields: [visaCountryId], references: [id], onDelete: Cascade)
-  documents    VisaDocument[]
   requirements VisaRequirement[]
+  steps        VisaProcessStep[]
+  faqs         FAQ[]
 
   @@unique([visaCountryId, slug])
+  @@index([visaCountryId, status])
 }
 
-// What a given passport needs for a given visa type. Powers the Visa Finder:
-// Passport -> Destination -> Purpose -> Result.
+// A document or condition needed for a visa type: passport, photo, bank statement...
 model VisaRequirement {
-  id                String              @id @default(cuid())
-  visaTypeId        String
-  passportCountryId String
-  kind              VisaRequirementKind
-  summary           String?
-  notes             String?
-  updatedAt         DateTime            @updatedAt
-
-  visaType        VisaType @relation(fields: [visaTypeId], references: [id], onDelete: Cascade)
-  passportCountry Country  @relation("PassportCountry", fields: [passportCountryId], references: [id], onDelete: Cascade)
-
-  @@unique([visaTypeId, passportCountryId])
-  @@index([passportCountryId])
-}
-
-model VisaDocument {
   id          String  @id @default(cuid())
   visaTypeId  String
-  name        String
+  title       String
   description String?
-  isMandatory Boolean @default(true)
+  required    Boolean @default(true) // false = "recommended" / "if applicable"
   sortOrder   Int     @default(0)
 
   visaType VisaType @relation(fields: [visaTypeId], references: [id], onDelete: Cascade)
 
-  @@index([visaTypeId])
+  @@index([visaTypeId, sortOrder])
 }
 
-model VisaFAQ {
-  id            String @id @default(cuid())
-  visaCountryId String
-  question      String
-  answer        String
-  sortOrder     Int    @default(0)
+// One step of the application process, in order: "Check eligibility",
+// "Prepare documents"... Rendered as the numbered 01, 02, 03 sequence.
+model VisaProcessStep {
+  id          String  @id @default(cuid())
+  visaTypeId  String
+  title       String
+  description String?
+  sortOrder   Int     @default(0)
 
-  visaCountry VisaCountry @relation(fields: [visaCountryId], references: [id], onDelete: Cascade)
+  visaType VisaType @relation(fields: [visaTypeId], references: [id], onDelete: Cascade)
 
-  @@index([visaCountryId])
+  @@index([visaTypeId, sortOrder])
 }
 
 // ---------------------------------------------------------------------------
 // Travel Journal
 // ---------------------------------------------------------------------------
 
+// One table for every article type; `category` distinguishes them.
+// URL: /travel-journal/{slug}/
 model TravelGuide {
   id              String        @id @default(cuid())
   title           String
-  slug            String        @unique // /travel-guide/{slug}/
-  excerpt         String?
+  slug            String        @unique
+  excerpt         String? // answer-first summary
   content         String // markdown
   category        GuideCategory
   destinationId   String?
+  countryId       String? // for country-level guides (e.g. visa guides)
   authorId        String?
   featuredImageId String?
+  isSample        Boolean       @default(false)
   status          PublishStatus @default(DRAFT)
   publishedAt     DateTime?
-  seoTitle        String?
-  metaDescription String?
-  canonicalUrl    String? // only set when it differs from the page's own URL
+  seoId           String?       @unique
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
   destination   Destination?  @relation(fields: [destinationId], references: [id], onDelete: SetNull)
+  country       Country?      @relation(fields: [countryId], references: [id], onDelete: SetNull)
   author        User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
   featuredImage Media?        @relation(fields: [featuredImageId], references: [id], onDelete: SetNull)
+  seo           SeoMeta?      @relation(fields: [seoId], references: [id], onDelete: SetNull)
   faqs          FAQ[]
   related       TravelGuide[] @relation("RelatedGuides")
   relatedBy     TravelGuide[] @relation("RelatedGuides")
 
-  @@index([status, category])
+  @@index([status, publishedAt])
+  @@index([category, status])
   @@index([destinationId])
+  @@index([countryId])
 }
 
 // ---------------------------------------------------------------------------
 // FAQs and reviews
 // ---------------------------------------------------------------------------
 
-// One FAQ table, optionally attached to a package, destination or guide.
-// Visa FAQs live in VisaFAQ because they are versioned with visa data.
+// One FAQ table for the whole site. Each FAQ belongs to at most ONE owner
+// (enforced by a CHECK constraint in the migration); none = site-wide FAQ.
 model FAQ {
   id            String        @id @default(cuid())
   question      String
   answer        String
-  placement     FaqPlacement  @default(GENERAL)
+  placement     FaqPlacement  @default(DEFAULT)
   packageId     String?
   destinationId String?
+  countryId     String?
   guideId       String?
+  visaCountryId String?
+  visaTypeId    String?
   sortOrder     Int           @default(0)
-  status        PublishStatus @default(PUBLISHED)
+  isSample      Boolean       @default(false)
+  status        PublishStatus @default(DRAFT)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
   package     TourPackage? @relation(fields: [packageId], references: [id], onDelete: Cascade)
   destination Destination? @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+  country     Country?     @relation(fields: [countryId], references: [id], onDelete: Cascade)
   guide       TravelGuide? @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  visaCountry VisaCountry? @relation(fields: [visaCountryId], references: [id], onDelete: Cascade)
+  visaType    VisaType?    @relation(fields: [visaTypeId], references: [id], onDelete: Cascade)
 
+  @@index([packageId])
+  @@index([destinationId])
+  @@index([countryId])
+  @@index([guideId])
+  @@index([visaCountryId])
+  @@index([visaTypeId])
   @@index([placement, status])
 }
 
-// Reviews are only ever entered by staff from real customers.
+// Reviews are only ever entered by staff from real customers. Never seeded.
 model Review {
-  id            String       @id @default(cuid())
-  customerName  String
-  body          String
-  rating        Int // 1-5, validated in the app layer
-  travelYear    Int?
-  photoId       String?
-  destinationId String?
-  packageId     String?
-  source        String? // e.g. "Google", "WhatsApp", "Email"
-  status        ReviewStatus @default(PENDING)
-  isSample      Boolean      @default(false) // development placeholder, never published in production
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  id               String       @id @default(cuid())
+  travellerName    String
+  rating           Int // 1-5 (CHECK constraint + Zod)
+  title            String?
+  content          String
+  travellerImageId String?
+  travelDate       DateTime?    @db.Date
+  packageId        String?
+  destinationId    String?
+  source           String? // e.g. "Google", "WhatsApp", "Email"
+  verified         Boolean      @default(false) // staff confirmed this person travelled with us
+  isSample         Boolean      @default(false)
+  status           ReviewStatus @default(PENDING)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  photo       Media?       @relation(fields: [photoId], references: [id], onDelete: SetNull)
-  destination Destination? @relation(fields: [destinationId], references: [id], onDelete: SetNull)
-  package     TourPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  travellerImage Media?       @relation(fields: [travellerImageId], references: [id], onDelete: SetNull)
+  package        TourPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  destination    Destination? @relation(fields: [destinationId], references: [id], onDelete: SetNull)
 
-  @@index([status])
+  @@index([packageId, status])
+  @@index([destinationId, status])
+  @@index([status, createdAt])
 }
 
 // ---------------------------------------------------------------------------
-// Leads
+// Leads and enquiries (capture only; the CRM arrives in a later phase)
 // ---------------------------------------------------------------------------
 
-// A Lead is one traveller/opportunity moving through the sales pipeline.
+// A structured trip request ("Plan your trip", package enquiry, visa help).
 model Lead {
   id          String     @id @default(cuid())
   name        String
   phone       String
   email       String?
   destination String? // free text as typed by the traveller
-  travelDate  DateTime?
+  travelDate  DateTime?  @db.Date
   travellers  Int?
   budget      String?
   tripType    String?
   message     String?
-  source      String? // website form, whatsapp, phone, referral...
-  utmSource   String?
-  utmMedium   String?
-  utmCampaign String?
-  utmTerm     String?
-  utmContent  String?
-  landingPage String?
+  source      String? // utm_source, or "website" / "whatsapp" / "referral"
+  medium      String? // utm_medium
+  campaign    String? // utm_campaign
+  landingPage String? // first page of the visit (path only)
+  packageId   String?
   status      LeadStatus @default(NEW)
-  notes       String? // internal only
+  notes       String? // internal only, never shown publicly
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  enquiries Enquiry[]
+  package TourPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
+  @@index([packageId])
   @@index([phone])
 }
 
-// An Enquiry is a single submission (form, package enquiry, visa request).
-// Repeat submissions from the same person attach to the same Lead.
+// A general contact message with no trip details. Kept separate from Lead so
+// the sales pipeline isn't cluttered with "where is my invoice?" messages.
 model Enquiry {
-  id        String      @id @default(cuid())
-  leadId    String
-  type      EnquiryType
-  packageId String?
-  pageUrl   String?
-  payload   Json // raw validated form data, for audit
-  ipHash    String? // hashed, used for rate limiting/abuse only
-  userAgent String?
-  createdAt DateTime    @default(now())
+  id        String        @id @default(cuid())
+  name      String
+  email     String?
+  phone     String?
+  subject   String?
+  message   String
+  source    String? // page or channel it came from
+  status    EnquiryStatus @default(NEW)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 
-  lead    Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  package TourPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
-
-  @@index([leadId])
-  @@index([createdAt])
+  @@index([status, createdAt])
 }
 
 // ---------------------------------------------------------------------------
-// Site settings (SEO settings, contact details, social links...)
+// Site settings (contact details, social links...) - edited in the admin later
 // ---------------------------------------------------------------------------
 
 model SiteSetting {

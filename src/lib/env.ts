@@ -8,6 +8,7 @@ import { z } from "zod";
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().url(),
   SESSION_SECRET: z.string().optional(),
+  DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

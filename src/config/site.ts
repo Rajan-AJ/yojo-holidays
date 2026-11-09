@@ -1,3 +1,5 @@
+import { routes } from "@/lib/routes";
+
 /**
  * Business identity and navigation.
  *
@@ -19,60 +21,83 @@ export const siteConfig = {
     email: "[CLIENT EMAIL]",
     address: "[CLIENT ADDRESS]",
   },
+  /** Profile URLs. Placeholders render as plain text, never as links. */
+  social: [
+    { label: "Instagram", href: "[CLIENT INSTAGRAM URL]" },
+    { label: "Facebook", href: "[CLIENT FACEBOOK URL]" },
+    { label: "YouTube", href: "[CLIENT YOUTUBE URL]" },
+  ],
   logo: "/brand/yojo-holidays-logo.jpg",
+} as const;
+
+/**
+ * Visa guides are written per passport. The site's audience holds Indian
+ * passports, so /visa/{country}/ shows the guide for this passport. Adding a
+ * passport later is a data change (new VisaCountry rows), not a code change.
+ */
+export const visaConfig = {
+  defaultPassportIso: "IN",
 } as const;
 
 export type NavItem = { label: string; href: string };
 
 /** Desktop primary navigation, per the brief. Kept deliberately short. */
 export const mainNav: NavItem[] = [
-  { label: "Destinations", href: "/destinations/" },
-  { label: "Tours", href: "/tours/" },
-  { label: "Visa Assistance", href: "/visa/" },
-  { label: "Travel Journal", href: "/travel-guide/" },
-  { label: "About", href: "/about/" },
+  { label: "Tours", href: routes.tours() },
+  { label: "Destinations", href: routes.destinations() },
+  { label: "Visa", href: routes.visa() },
+  { label: "Travel Journal", href: routes.journal() },
+  { label: "About", href: routes.about() },
+  { label: "Contact", href: routes.contact() },
 ];
 
-export const primaryCta: NavItem = { label: "Plan a Trip", href: "/plan-your-trip/" };
+export const primaryCta: NavItem = { label: "Plan Your Trip", href: routes.planTrip() };
 
+/** Only links a traveller would actually use. No SEO link-stuffing. */
 export const footerNav: { heading: string; links: NavItem[] }[] = [
   {
     heading: "Tours",
     links: [
-      { label: "Domestic Tours", href: "/domestic-tours/" },
-      { label: "International Tours", href: "/international-tours/" },
-      { label: "Family Tours", href: "/tours/family/" },
-      { label: "Honeymoon Tours", href: "/tours/honeymoon/" },
-      { label: "Group Tours", href: "/tours/group/" },
-      { label: "Custom Trips", href: "/plan-your-trip/" },
+      { label: "Domestic Tours", href: routes.scope("DOMESTIC") },
+      { label: "International Tours", href: routes.scope("INTERNATIONAL") },
+      { label: "Family Holidays", href: routes.tourCategory("family") },
+      { label: "Honeymoons", href: routes.tourCategory("honeymoon") },
+      { label: "Group Tours", href: routes.tourCategory("group") },
     ],
   },
   {
     heading: "Destinations",
     links: [
-      { label: "India", href: "/domestic-tours/" },
-      { label: "Asia", href: "/destinations/asia/" },
-      { label: "Middle East", href: "/destinations/middle-east/" },
-      { label: "Europe", href: "/destinations/europe/" },
-      { label: "All Destinations", href: "/destinations/" },
+      { label: "Vietnam", href: routes.destination("INTERNATIONAL", "vietnam") },
+      { label: "Japan", href: routes.destination("INTERNATIONAL", "japan") },
+      { label: "Dubai", href: routes.destination("INTERNATIONAL", "dubai") },
+      { label: "Singapore", href: routes.destination("INTERNATIONAL", "singapore") },
+      { label: "All destinations", href: routes.destinations() },
     ],
   },
   {
-    heading: "Visa & Help",
+    heading: "Visa & Journal",
     links: [
-      { label: "Visa Finder", href: "/visa/" },
-      { label: "Travel Journal", href: "/travel-guide/" },
-      { label: "FAQs", href: "/faq/" },
+      { label: "Visa Assistance", href: routes.visa() },
+      { label: "Visa Guides", href: routes.journalCategory("VISA_GUIDE") },
+      { label: "Destination Guides", href: routes.journalCategory("DESTINATION_GUIDE") },
+      { label: "Travel Journal", href: routes.journal() },
     ],
   },
   {
     heading: "Company",
     links: [
-      { label: "About", href: "/about/" },
-      { label: "Contact", href: "/contact/" },
-      { label: "Plan Your Trip", href: "/plan-your-trip/" },
+      { label: "About", href: routes.about() },
+      { label: "Contact", href: routes.contact() },
+      { label: "Plan Your Trip", href: routes.planTrip() },
+      { label: "FAQs", href: routes.faq() },
     ],
   },
+];
+
+export const legalNav: NavItem[] = [
+  { label: "Privacy Policy", href: "/privacy-policy/" },
+  { label: "Terms & Conditions", href: "/terms/" },
 ];
 
 /** True while a value is still an unreplaced development placeholder. */
