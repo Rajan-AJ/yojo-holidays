@@ -13,7 +13,13 @@ export const siteConfig = {
   tagline: "Your gateway to the world", // from the client logo
   description:
     "Domestic and international tour packages, custom trips and visa assistance, planned around how you like to travel.",
-  url: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
+  // Explicit value first; on Vercel, fall back to the project's production
+  // domain (provided automatically) so canonical URLs never point to localhost.
+  url:
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ||
+    (process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}`
+      : "http://localhost:3000"),
   locale: "en_IN",
   contact: {
     phone: "[CLIENT PHONE]",

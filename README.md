@@ -73,6 +73,50 @@ If the local `prisma dev` database starts dropping connections after many restar
 | `npm run db:verify` | End-to-end data-flow verification (cleans up after itself) |
 | `npm run db:studio` | Browse the database |
 
+## Deploying to Vercel (staging preview)
+
+The site renders from PostgreSQL at build time **and** at runtime, so a hosted
+database is required. The local `prisma dev` database only works on your machine.
+
+1. **Database.** Vercel → project → *Storage* → *Create Database* → **Neon**
+   (Postgres). Connect it to this project for all environments. This adds
+   `DATABASE_URL` to the project's environment variables. Use the **pooled**
+   connection string.
+2. **Environment variables** (*Settings → Environment Variables*):
+
+   | Name | Value |
+   | --- | --- |
+   | `DATABASE_URL` | Neon connection string (added by step 1) |
+   | `DATABASE_POOL_MAX` | `5` |
+   | `SHOW_SAMPLE_CONTENT` | `true` while the site only has sample content. `false` on the real launch. |
+   | `NEXT_PUBLIC_ALLOW_INDEXING` | `false` (keeps search engines out). Set `true` only at the real launch. |
+   | `NEXT_PUBLIC_SITE_URL` | Optional. Your final domain, no trailing slash. Defaults to the Vercel production domain. |
+
+   Leave `NEXT_BUILD_CPUS` and `SHADOW_DATABASE_URL` unset on Vercel.
+3. **Tables + sample content** (once, from your machine, PowerShell):
+
+   ```powershell
+   $env:DATABASE_URL="<neon connection string>"; npx prisma migrate deploy; npx prisma db seed
+   ```
+
+   The shell value overrides `.env` for that terminal only. Seeding a
+   **staging** database with clearly-marked sample data is fine; the seed
+   refuses to run with `NODE_ENV=production`. For the real launch, use a fresh
+   database with only client-approved content.
+4. **Deploy.** Push to `main` (or *Deployments → Redeploy*). After schema
+   changes, run `npx prisma migrate deploy` against Neon **before** deploying.
+
+Safety built in: secrets live only in Vercel's environment variables (`.env*`
+is gitignored); `DATABASE_URL` is server-only; every deployment is `noindex`
+unless `NEXT_PUBLIC_ALLOW_INDEXING=true`; baseline security headers are set in
+`next.config.ts`; a missing/invalid `DATABASE_URL` fails the build with a clear
+message instead of deploying a broken site.
+
+Before going live commercially: Vercel's **Hobby plan is for non-commercial use
+only**, so a business site needs the **Pro** plan. Replace every `[CLIENT …]`
+placeholder and all sample content, and add a privacy policy and terms page
+(written/approved by the client), since the site collects enquiries.
+
 ## Project structure
 
 ```
