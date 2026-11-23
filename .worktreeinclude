@@ -1,0 +1,3 @@
+# Gitignored files copied into new git worktrees created by Claude Code
+.env
+.env.local
