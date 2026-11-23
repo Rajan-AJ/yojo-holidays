@@ -55,7 +55,7 @@ export function Header() {
           )}
         />
         <div className="mx-auto flex h-header w-full max-w-wide items-center justify-between gap-6 px-gutter">
-          <Wordmark />
+          <Wordmark onDark={transparent} priority />
 
           <nav aria-label="Main" className="hidden lg:block">
             <ul className="flex items-center gap-6 xl:gap-9">

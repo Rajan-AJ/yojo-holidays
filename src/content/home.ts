@@ -1,6 +1,6 @@
 /**
  * Homepage editorial content that is NOT database content: the hero photo,
- * the Domestic / International split and the "Why us" statements.
+ * client figures, "Why choose us", the booking steps and the closing CTA.
  *
  * Everything travel-related on the homepage (destinations, tours, itinerary,
  * travel styles, visa destinations, guides, FAQs, reviews) now comes from the
@@ -14,7 +14,7 @@
  *   real ones are supplied.
  */
 import type { ImageAsset } from "@/types/content";
-import { routes } from "@/lib/routes";
+import type { HomeIcon } from "@/components/home/icons";
 
 /** Placeholder photo. Width-capped at source so the optimiser fetches a sane original. */
 function photo(id: string, alt: string): ImageAsset {
@@ -44,43 +44,96 @@ export const hero = {
   image: images.hero,
 };
 
-export const scopeSplit = {
-  domestic: {
-    title: "India, up close.",
-    description: "Backwaters, forts, mountains and coast, planned door to door.",
-    href: routes.scope("DOMESTIC"),
-    image: images.kerala,
-  },
-  international: {
-    title: "The world, within reach.",
-    description: "From Southeast Asia to Europe, with visas and the details handled.",
-    href: routes.scope("INTERNATIONAL"),
-    image: images.vietnamBridge,
-  },
-} as const;
 
-export const visaImage = images.flight;
+/** Image behind the closing call to action. */
+export const ctaImage = images.vietnamBridge;
 
+
+/**
+ * "Our track record" figures supplied by the client. Leave a value null until
+ * the client confirms it: null figures are simply not shown. Never estimate.
+ * (Counts of destinations, packages, travel styles and visa guides are
+ * computed from the database on the homepage.)
+ */
+export const clientFigures: { icon: HomeIcon; value: number | null; suffix?: string; label: string; sublabel?: string }[] = [
+  { icon: "star", value: null, suffix: "+", label: "Years of experience" },
+  { icon: "users", value: null, suffix: "+", label: "Happy travellers" },
+];
+
+/** COPY TO BE CONFIRMED BY THE CLIENT. No numbers or guarantees until supplied. */
 export const whyUs = {
-  title: "Travel should feel simple.",
+  eyebrow: "Why choose us",
+  title: "The Yojo",
+  accent: "Difference",
   intro: "One team for the whole trip, from the first idea to the day you fly home.",
-  image: images.planning,
   principles: [
     {
+      icon: "users" as HomeIcon,
       title: "Planned around you",
       body: "Every trip starts with how you like to travel: your pace, your budget and the people you're going with.",
     },
     {
+      icon: "globe" as HomeIcon,
       title: "India and abroad, in one place",
       body: "Domestic holidays and international journeys, planned by the same people.",
     },
     {
+      icon: "passport" as HomeIcon,
       title: "Visa help built in",
       body: "Visa guidance is part of planning the trip, so the paperwork is never an afterthought.",
     },
     {
+      icon: "receipt" as HomeIcon,
       title: "Clear before you commit",
       body: "You see what is included, and what isn't, before you book.",
     },
+    {
+      icon: "route" as HomeIcon,
+      title: "Flexible itineraries",
+      body: "Start from one of our journeys or build your own. Every day can be adjusted.",
+    },
+    {
+      icon: "chat" as HomeIcon,
+      title: "Real people to talk to",
+      body: "Questions go to the team planning your trip, not to a call centre.",
+    },
   ],
 };
+
+/** How booking works. COPY TO BE CONFIRMED BY THE CLIENT (no time promises yet). */
+export const journeySteps = {
+  eyebrow: "How it works",
+  title: "Your journey to",
+  accent: "hassle-free travel",
+  intro: "Five simple steps from enquiry to landing. We do the planning; you do the dreaming.",
+  steps: [
+    {
+      icon: "chat" as HomeIcon,
+      title: "Share your idea",
+      body: "Tell us where you'd like to go, when, your budget and who's travelling.",
+    },
+    {
+      icon: "route" as HomeIcon,
+      title: "Get your plan",
+      body: "We send a day-by-day itinerary with hotel options and a clear cost breakdown.",
+    },
+    {
+      icon: "check" as HomeIcon,
+      title: "Fine-tune and confirm",
+      body: "Change anything you like, then confirm when it feels right.",
+    },
+    {
+      icon: "passport" as HomeIcon,
+      title: "We handle the details",
+      body: "Bookings, transfers and visa guidance, all arranged before you leave.",
+    },
+    {
+      icon: "plane" as HomeIcon,
+      title: "Travel with ease",
+      body: "Go knowing the people who planned your trip are a message away.",
+    },
+  ],
+};
+
+/** Reassurance chips in the closing call to action. Statements only. */
+export const ctaPoints = ["Free consultation", "No hidden costs", "Visa guidance"];

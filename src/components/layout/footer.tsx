@@ -27,7 +27,7 @@ export function Footer() {
         {/* Intro + CTA */}
         <div className="grid gap-10 border-b border-line-inverse py-section-sm lg:grid-cols-12 lg:items-end">
           <div className="lg:col-span-7">
-            <Wordmark />
+            <Wordmark onDark size="lg" className="px-4 py-3" />
             <p className="mt-8 max-w-xl font-serif text-h3 text-canvas/90">
               {siteConfig.description}
             </p>

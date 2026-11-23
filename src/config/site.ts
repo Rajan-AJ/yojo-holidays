@@ -33,7 +33,10 @@ export const siteConfig = {
     { label: "Facebook", href: "[CLIENT FACEBOOK URL]" },
     { label: "YouTube", href: "[CLIENT YOUTUBE URL]" },
   ],
+  /** Client logo on its original light background (used for Organization schema). */
   logo: "/brand/yojo-holidays-logo.jpg",
+  /** Transparent version for the site header, menu and footer. */
+  logoTransparent: "/brand/yojo-holidays-logo.png",
 } as const;
 
 /**

@@ -21,6 +21,14 @@ const playfair = localFont({
   display: "swap",
 });
 
+// Display face for the homepage sections below the hero.
+const spaceGrotesk = localFont({
+  src: "./fonts/space-grotesk-latin-wght.woff2",
+  variable: "--font-space-grotesk",
+  weight: "300 700",
+  display: "swap",
+});
+
 const allowIndexing = process.env.NEXT_PUBLIC_ALLOW_INDEXING === "true";
 
 export const metadata: Metadata = {
@@ -47,7 +55,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en-IN" className={`${inter.variable} ${playfair.variable}`}>
+    <html lang="en-IN" className={`${inter.variable} ${playfair.variable} ${spaceGrotesk.variable}`}>
       <body className="min-h-dvh">{children}</body>
     </html>
   );
