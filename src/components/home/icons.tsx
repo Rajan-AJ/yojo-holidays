@@ -16,7 +16,9 @@ export type HomeIcon =
   | "ship"
   | "sun"
   | "map"
-  | "shield";
+  | "shield"
+  | "calendar"
+  | "filter";
 
 /** Line icons for the homepage. 24px grid, 1.6 stroke, currentColor. */
 const paths: Record<HomeIcon, React.ReactNode> = {
@@ -99,6 +101,20 @@ const paths: Record<HomeIcon, React.ReactNode> = {
     <>
       <path d="M12 3l7.5 3v6c0 4.5-3.2 7.8-7.5 9-4.3-1.2-7.5-4.5-7.5-9V6L12 3z" />
       <path d="M8.8 12l2.2 2.2 4.2-4.2" />
+    </>
+  ),
+  calendar: (
+    <>
+      <rect x="3.5" y="5" width="17" height="15" rx="2" />
+      <path d="M3.5 9.5h17M8 3v3.5M16 3v3.5" />
+    </>
+  ),
+  filter: (
+    <>
+      <path d="M4 6.5h16M4 12h16M4 17.5h16" />
+      <circle cx="8.5" cy="6.5" r="1.8" />
+      <circle cx="15.5" cy="12" r="1.8" />
+      <circle cx="10.5" cy="17.5" r="1.8" />
     </>
   ),
 };

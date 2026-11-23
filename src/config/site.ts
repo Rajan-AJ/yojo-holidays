@@ -1,4 +1,5 @@
 import { routes } from "@/lib/routes";
+import type { TourScope } from "@/types/content";
 
 /**
  * Business identity and navigation.
@@ -48,15 +49,19 @@ export const visaConfig = {
   defaultPassportIso: "IN",
 } as const;
 
-export type NavItem = { label: string; href: string };
+export type NavItem = {
+  label: string;
+  href: string;
+  /** Present on items that open a destinations dropdown on desktop. */
+  scope?: TourScope;
+};
 
 /** Desktop primary navigation, per the brief. Kept deliberately short. */
 export const mainNav: NavItem[] = [
-  { label: "Tours", href: routes.tours() },
-  { label: "Destinations", href: routes.destinations() },
+  { label: "India", href: routes.scope("DOMESTIC"), scope: "DOMESTIC" },
+  { label: "International", href: routes.scope("INTERNATIONAL"), scope: "INTERNATIONAL" },
   { label: "Visa", href: routes.visa() },
-  { label: "Travel Journal", href: routes.journal() },
-  { label: "About", href: routes.about() },
+  { label: "About Us", href: routes.about() },
   { label: "Contact", href: routes.contact() },
 ];
 

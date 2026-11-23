@@ -10,7 +10,6 @@ import {
   getLatestGuides,
   getPackages,
   getPublishedReviews,
-  getSearchSuggestions,
   getTopLevelDestinations,
   getTourCategories,
   getVisaDestinations,
@@ -56,7 +55,6 @@ export default async function HomePage() {
     reviews,
     guides,
     faqs,
-    suggestions,
     passports,
   ] = await Promise.all([
     getFeaturedDestinations(4),
@@ -69,7 +67,6 @@ export default async function HomePage() {
     getPublishedReviews({ limit: 3 }),
     getLatestGuides({ limit: 3 }),
     getHomepageFaqs(),
-    getSearchSuggestions(),
     getVisaPassports(),
   ]);
 
@@ -98,8 +95,12 @@ export default async function HomePage() {
       <Hero
         {...hero}
         primaryCta={primaryCta}
-        popular={featured.map((d) => ({ label: d.name, href: d.href }))}
-        suggestions={suggestions}
+        destinationsByScope={{
+          DOMESTIC: domestic.map((d) => ({ id: d.id, name: d.name, href: d.href })),
+          INTERNATIONAL: international.map((d) => ({ id: d.id, name: d.name, href: d.href })),
+        }}
+        categories={categories.map((c) => ({ id: c.id, name: c.name }))}
+        trending={featured.map((d) => ({ label: d.name, href: d.href }))}
       />
       <TrackRecord stats={stats} />
       <PopularDestinations international={international.slice(0, 6)} domestic={domestic.slice(0, 6)} />

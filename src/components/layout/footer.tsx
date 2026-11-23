@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { footerNav, isPlaceholder, legalNav, primaryCta, siteConfig } from "@/config/site";
+import { footerNav, isPlaceholder, legalNav, siteConfig } from "@/config/site";
 import { Container } from "@/components/ui/container";
-import { ButtonLink, ArrowIcon } from "@/components/ui/button";
+import { cn } from "@/lib/cn";
 import { Wordmark } from "./wordmark";
 
 /** Renders a link only once the value is real; placeholders stay plain text. */
@@ -10,11 +10,88 @@ function MaybeLink({ value, href, external }: { value: string; href?: string; ex
   return (
     <a
       href={href}
-      className="transition-colors hover:text-white"
+      className="transition-colors hover:text-canvas"
       {...(external && { target: "_blank", rel: "noopener noreferrer" })}
     >
       {value}
     </a>
+  );
+}
+
+const socialGlyphs: Record<string, string> = { Instagram: "IG", Facebook: "FB", YouTube: "YT" };
+
+/** Small circular social icon; falls back to a muted, non-interactive dot for placeholder URLs. */
+function SocialLink({ item }: { item: { label: string; href: string } }) {
+  const glyph = socialGlyphs[item.label] ?? item.label.charAt(0).toUpperCase();
+  const className =
+    "flex size-9 items-center justify-center rounded-full border border-line-inverse text-[0.65rem] font-semibold tracking-wide text-canvas/70 transition-colors";
+
+  if (isPlaceholder(item.href)) {
+    return (
+      <span className={cn(className, "opacity-40")} aria-hidden="true">
+        {glyph}
+      </span>
+    );
+  }
+  return (
+    <a
+      href={item.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={item.label}
+      className={cn(className, "hover:border-canvas/40 hover:text-canvas")}
+    >
+      <span aria-hidden="true">{glyph}</span>
+    </a>
+  );
+}
+
+function PhoneIcon({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className={cn("size-4 shrink-0", className)}>
+      <path
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106a1.125 1.125 0 0 0-1.173.417l-.97 1.293a1.125 1.125 0 0 1-1.21.38 12.035 12.035 0 0 1-7.143-7.143 1.125 1.125 0 0 1 .38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z"
+      />
+    </svg>
+  );
+}
+
+function MailIcon({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className={cn("size-4 shrink-0", className)}>
+      <path
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"
+      />
+    </svg>
+  );
+}
+
+function PinIcon({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className={cn("size-4 shrink-0", className)}>
+      <path
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+      />
+      <path
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z"
+      />
+    </svg>
   );
 }
 
@@ -24,32 +101,48 @@ export function Footer() {
   return (
     <footer className="on-dark bg-ink text-canvas">
       <Container size="wide">
-        {/* Intro + CTA */}
-        <div className="grid gap-10 border-b border-line-inverse py-section-sm lg:grid-cols-12 lg:items-end">
-          <div className="lg:col-span-7">
-            <Wordmark onDark size="lg" className="px-4 py-3" />
-            <p className="mt-8 max-w-xl font-serif text-h3 text-canvas/90">
-              {siteConfig.description}
-            </p>
+        <div className="grid gap-10 py-14 lg:grid-cols-12">
+          {/* Brand + contact */}
+          <div className="lg:col-span-4">
+            <Wordmark onDark size="md" />
+            <p className="mt-5 max-w-xs text-body-sm text-canvas/70">{siteConfig.description}</p>
+            <address className="mt-6 space-y-3 text-body-sm not-italic text-canvas/85">
+              <p className="flex items-center gap-2.5">
+                <PhoneIcon className="text-canvas/50" />
+                <span className="sr-only">Phone: </span>
+                <MaybeLink value={contact.phone} href={`tel:${contact.phone}`} />
+              </p>
+              <p className="flex items-center gap-2.5">
+                <MailIcon className="text-canvas/50" />
+                <span className="sr-only">Email: </span>
+                <MaybeLink value={contact.email} href={`mailto:${contact.email}`} />
+              </p>
+              <p className="flex items-start gap-2.5">
+                <PinIcon className="mt-0.5 text-canvas/50" />
+                <span>
+                  <span className="sr-only">Address: </span>
+                  {contact.address}
+                </span>
+              </p>
+            </address>
+            <ul className="mt-6 flex gap-2.5">
+              {social.map((item) => (
+                <li key={item.label}>
+                  <SocialLink item={item} />
+                </li>
+              ))}
+            </ul>
           </div>
-          <div className="lg:col-span-5 lg:justify-self-end">
-            <ButtonLink href={primaryCta.href} variant="inverse" size="lg">
-              {primaryCta.label}
-              <ArrowIcon />
-            </ButtonLink>
-          </div>
-        </div>
 
-        {/* Links + contact */}
-        <div className="grid gap-12 py-16 lg:grid-cols-12">
-          <nav aria-label="Footer" className="grid grid-cols-2 gap-x-6 gap-y-10 md:grid-cols-4 lg:col-span-8">
+          {/* Link columns */}
+          <nav aria-label="Footer" className="grid grid-cols-2 gap-x-6 gap-y-9 sm:grid-cols-4 lg:col-span-8">
             {footerNav.map((group) => (
               <div key={group.heading}>
-                <h2 className="eyebrow text-canvas/60">{group.heading}</h2>
-                <ul className="mt-5 space-y-3 text-body-sm">
+                <h2 className="eyebrow text-canvas/50">{group.heading}</h2>
+                <ul className="mt-4 space-y-2.5 text-body-sm">
                   {group.links.map((link) => (
                     <li key={link.href + link.label}>
-                      <Link href={link.href} className="text-canvas/85 transition-colors hover:text-accent">
+                      <Link href={link.href} className="text-canvas/80 transition-colors hover:text-accent">
                         {link.label}
                       </Link>
                     </li>
@@ -58,40 +151,10 @@ export function Footer() {
               </div>
             ))}
           </nav>
-
-          <div className="grid gap-10 sm:grid-cols-2 lg:col-span-4 lg:grid-cols-1 lg:pl-10">
-            <div>
-              <h2 className="eyebrow text-canvas/60">Contact</h2>
-              <address className="mt-5 space-y-3 text-body-sm not-italic text-canvas/85">
-                <p>
-                  <span className="sr-only">Phone: </span>
-                  <MaybeLink value={contact.phone} href={`tel:${contact.phone}`} />
-                </p>
-                <p>
-                  <span className="sr-only">Email: </span>
-                  <MaybeLink value={contact.email} href={`mailto:${contact.email}`} />
-                </p>
-                <p>
-                  <span className="sr-only">Address: </span>
-                  {contact.address}
-                </p>
-              </address>
-            </div>
-            <div>
-              <h2 className="eyebrow text-canvas/60">Follow</h2>
-              <ul className="mt-5 flex flex-wrap gap-x-6 gap-y-3 text-body-sm text-canvas/85">
-                {social.map((item) => (
-                  <li key={item.label}>
-                    <MaybeLink value={item.label} href={item.href} external />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
         </div>
 
         {/* Legal */}
-        <div className="flex flex-col gap-4 border-t border-line-inverse py-8 text-caption text-canvas/60 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 border-t border-line-inverse py-6 text-caption text-canvas/55 sm:flex-row sm:items-center sm:justify-between">
           <p>
             © <CopyrightYear /> {siteConfig.name}. All rights reserved.
           </p>

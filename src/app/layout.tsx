@@ -55,7 +55,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en-IN" className={`${inter.variable} ${playfair.variable} ${spaceGrotesk.variable}`}>
+    <html
+      lang="en-IN"
+      className={`${inter.variable} ${playfair.variable} ${spaceGrotesk.variable}`}
+      suppressHydrationWarning
+    >
       <body className="min-h-dvh">{children}</body>
     </html>
   );

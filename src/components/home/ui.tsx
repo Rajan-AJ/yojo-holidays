@@ -122,18 +122,22 @@ const buttonSizes = {
   lg: "h-[52px] px-8 text-[15px]",
 } as const;
 
+type HomeButtonStyleProps = { variant?: keyof typeof buttonVariants; size?: keyof typeof buttonSizes; className?: string };
+
+/** Class string for anything that should look like a bold homepage button (e.g. a real <button>). */
+export function homeButtonClassName({ variant = "pink", size = "md", className }: HomeButtonStyleProps = {}) {
+  return cn(buttonBase, buttonVariants[variant], buttonSizes[size], className);
+}
+
 export function HomeButton({
-  variant = "pink",
-  size = "md",
+  variant,
+  size,
   className,
   children,
   ...props
-}: React.ComponentProps<typeof Link> & {
-  variant?: keyof typeof buttonVariants;
-  size?: keyof typeof buttonSizes;
-}) {
+}: React.ComponentProps<typeof Link> & HomeButtonStyleProps) {
   return (
-    <Link className={cn(buttonBase, buttonVariants[variant], buttonSizes[size], className)} {...props}>
+    <Link className={homeButtonClassName({ variant, size, className })} {...props}>
       {children}
     </Link>
   );

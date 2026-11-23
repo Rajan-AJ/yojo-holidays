@@ -125,6 +125,12 @@
     -webkit-text-size-adjust: 100%;
     scroll-padding-top: calc(var(--spacing-header) + 1rem);
     scroll-behavior: smooth;
+    /* Scrolling still works everywhere; only the visible track is hidden. */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge */
+  }
+  html::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Chromium Edge */
   }
 
   /* Lock background scroll while the mobile menu (modal <dialog>) is open. */
