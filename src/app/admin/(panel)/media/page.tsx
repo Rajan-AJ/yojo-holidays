@@ -17,3 +17,6 @@ export default async function MediaPage() {
     </AdminPage>
   );
 }
+
+// Per-request admin page (reads the signed-in user): render on the server, no instant-navigation prerender.
+export const instant = false;

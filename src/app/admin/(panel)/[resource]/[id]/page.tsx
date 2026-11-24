@@ -19,3 +19,6 @@ export default async function ResourceEditPage({ params }: PageProps<"/admin/[re
   if (!UUID.test(id)) notFound();
   return <EditView res={res} id={id} session={session} />;
 }
+
+// Per-request admin page (reads the signed-in user): render on the server, no instant-navigation prerender.
+export const instant = false;

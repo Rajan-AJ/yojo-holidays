@@ -148,3 +148,6 @@ export default async function LeadsPage({ searchParams }: PageProps<"/admin/lead
     </AdminPage>
   );
 }
+
+// Per-request admin page (reads the signed-in user): render on the server, no instant-navigation prerender.
+export const instant = false;
