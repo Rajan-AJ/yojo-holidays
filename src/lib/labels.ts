@@ -1,27 +1,6 @@
-import type { GuideCategory, TourScope } from "@/types/content";
+import type { TourScope } from "@/types/content";
 
 /** Human labels for database enums. */
-export const guideCategoryLabel: Record<GuideCategory, string> = {
-  DESTINATION_GUIDE: "Destination Guide",
-  VISA_GUIDE: "Visa Guide",
-  TRAVEL_TIPS: "Travel Tips",
-  THINGS_TO_DO: "Things To Do",
-  BEST_TIME_TO_VISIT: "Best Time To Visit",
-  TRAVEL_COST_GUIDE: "Travel Costs",
-  TRAVEL_FAQ: "Travel FAQ",
-};
-
-/** Plural forms for navigation ("Visa Guides"), where the singular reads oddly. */
-export const guideCategoryNavLabel: Record<GuideCategory, string> = {
-  DESTINATION_GUIDE: "Destination Guides",
-  VISA_GUIDE: "Visa Guides",
-  TRAVEL_TIPS: "Travel Tips",
-  THINGS_TO_DO: "Things To Do",
-  BEST_TIME_TO_VISIT: "Best Time To Visit",
-  TRAVEL_COST_GUIDE: "Travel Costs",
-  TRAVEL_FAQ: "Travel FAQs",
-};
-
 export const scopeLabel: Record<TourScope, string> = {
   DOMESTIC: "Domestic Travel",
   INTERNATIONAL: "International Travel",
@@ -48,3 +27,19 @@ export const visaKindLabel: Record<"VISA_FREE" | "VISA_ON_ARRIVAL" | "E_VISA" | 
   ETA: "Electronic travel authorisation",
   VISA_REQUIRED: "Visa required before travel",
 };
+
+export const departureStatusLabel: Record<"open" | "filling_fast" | "sold_out" | "closed", string> = {
+  open: "Available",
+  filling_fast: "Filling fast",
+  sold_out: "Sold out",
+  closed: "Closed",
+};
+
+export const priceBasisLabel: Record<"per_person_twin_sharing" | "per_person" | "per_couple" | "per_group", string> = {
+  per_person_twin_sharing: "per person, twin sharing",
+  per_person: "per person",
+  per_couple: "per couple",
+  per_group: "per group",
+};
+
+export const monthLabel = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;

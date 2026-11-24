@@ -82,20 +82,20 @@ export const footerNav: { heading: string; links: NavItem[] }[] = [
   {
     heading: "Destinations",
     links: [
-      { label: "Vietnam", href: routes.destination("INTERNATIONAL", "vietnam") },
-      { label: "Japan", href: routes.destination("INTERNATIONAL", "japan") },
-      { label: "Dubai", href: routes.destination("INTERNATIONAL", "dubai") },
-      { label: "Singapore", href: routes.destination("INTERNATIONAL", "singapore") },
+      { label: "Vietnam", href: routes.destination("vietnam") },
+      { label: "Japan", href: routes.destination("japan") },
+      { label: "Dubai", href: routes.destination("dubai") },
+      { label: "Kerala", href: routes.destination("kerala") },
       { label: "All destinations", href: routes.destinations() },
     ],
   },
   {
-    heading: "Visa & Journal",
+    heading: "Visa & Blog",
     links: [
       { label: "Visa Assistance", href: routes.visa() },
-      { label: "Visa Guides", href: routes.journalCategory("VISA_GUIDE") },
-      { label: "Destination Guides", href: routes.journalCategory("DESTINATION_GUIDE") },
-      { label: "Travel Journal", href: routes.journal() },
+      { label: "Visa Guides", href: routes.blogCategory("visa-guides") },
+      { label: "Destination Guides", href: routes.blogCategory("destination-guides") },
+      { label: "Travel Blog", href: routes.journal() },
     ],
   },
   {

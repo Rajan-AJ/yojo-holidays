@@ -1,6 +1,6 @@
 ---
 name: security-review
-description: Security review of pending changes in Yojo Holidays (Next.js 16 + Prisma + Zod). Use when asked to security-review, audit, or check changes before deploy.
+description: Security review of pending changes in Yojo Holidays (Next.js 16 + Supabase Postgres + Zod). Use when asked to security-review, audit, or check changes before deploy.
 ---
 
 # Security review

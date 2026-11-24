@@ -10,16 +10,14 @@
  * generated Prisma enums would drag server code into client bundles.
  */
 
+import type { RichTextDoc } from "@/lib/rich-text";
+
+export type { RichTextDoc };
+
 export type TourScope = "DOMESTIC" | "INTERNATIONAL";
 
-export type GuideCategory =
-  | "DESTINATION_GUIDE"
-  | "VISA_GUIDE"
-  | "TRAVEL_TIPS"
-  | "THINGS_TO_DO"
-  | "BEST_TIME_TO_VISIT"
-  | "TRAVEL_COST_GUIDE"
-  | "TRAVEL_FAQ";
+/** Blog category (managed in the CMS). */
+export type BlogCategoryRef = { name: string; slug: string; href: string };
 
 /** Maps to Media. `alt` is required: every image needs a description. */
 export type ImageAsset = {
@@ -74,6 +72,8 @@ export type TravelCategory = {
   description: string;
   href: string;
   image?: ImageAsset;
+  /** Published tours in this style. Empty styles are noindex. */
+  tourCount?: number;
 };
 
 export type ItineraryDayView = {
@@ -103,7 +103,7 @@ export type ArticleSummary = Sampleable & {
   id: string;
   title: string;
   href: string;
-  category: GuideCategory;
+  category?: BlogCategoryRef;
   excerpt?: string;
   /** ISO date string. Omit when unknown; never invent one. */
   publishedAt?: string;
@@ -147,7 +147,7 @@ export type CountryDetail = {
   slug: string;
   region: { name: string; slug: string };
   shortDescription?: string;
-  description?: string;
+  description?: RichTextDoc;
   image?: ImageAsset;
   destinations: DestinationSummary[];
   /** Present when the country has published visa information. */
@@ -168,9 +168,12 @@ export type VisaSummary = {
 
 export type DestinationDetail = Omit<DestinationSummary, "image"> & {
   slug: string;
-  type: "COUNTRY" | "REGION" | "CITY" | "PLACE";
+  type: "COUNTRY" | "STATE" | "REGION" | "CITY" | "PLACE";
   image?: ImageAsset;
-  description?: string;
+  description?: RichTextDoc;
+  /** Months (1-12) that are a good time to go. */
+  bestMonths: number[];
+  travelTips: ListItem[];
   bestTimeToVisit?: string;
   averageDuration?: string;
   country: LinkRef & { slug: string };
@@ -195,6 +198,8 @@ export type ItineraryDayDetail = {
   afternoon?: string;
   evening?: string;
   meals: { breakfast: boolean; lunch: boolean; dinner: boolean };
+  /** Activities, sightseeing, transfers and places covered that day. */
+  activities: { title: string; kind: "activity" | "sightseeing" | "transfer" | "place"; optional: boolean }[];
   location?: string;
   /** Hotel name, or a note such as "Overnight on the cruise". */
   accommodation?: string;
@@ -214,11 +219,45 @@ export type PackageHotelView = {
 
 export type ListItem = { title: string; description?: string };
 
+/** One price plan (hotel tier) for a season. Amounts are per person unless the basis says otherwise. */
+export type PricePlanView = {
+  name: string;
+  validFrom?: string;
+  validTo?: string;
+  basis: "per_person_twin_sharing" | "per_person" | "per_couple" | "per_group";
+  currency: string;
+  adultTwin: number | null;
+  adultTriple: number | null;
+  childWithBed: number | null;
+  childWithoutBed: number | null;
+  infant: number | null;
+  singleSupplement: number | null;
+  includesGst: boolean;
+  notes?: string;
+};
+
+export type DepartureView = {
+  date: string;
+  returnDate?: string;
+  status: "open" | "filling_fast" | "sold_out" | "closed";
+  seatsAvailable?: number;
+  price: number | null;
+  currency: string;
+};
+
+export type PolicyView = { kind: "terms" | "cancellation" | "payment"; title: string; body: RichTextDoc };
+
 export type TourPackageDetail = Omit<TourSummary, "image"> & {
   slug: string;
   image?: ImageAsset;
-  description?: string;
-  importantInfo?: string;
+  description?: RichTextDoc;
+  importantInfo?: RichTextDoc;
+  departureType: "flexible" | "fixed_departure";
+  prices: PricePlanView[];
+  departures: DepartureView[];
+  policies: PolicyView[];
+  /** Inclusion type codes ("flights", "hotels"...) for the quick icons row. */
+  includedTypes: string[];
   destinationRef: LinkRef & { slug: string; scope: TourScope };
   /** Parent destination chain of the package's destination, outermost first. */
   destinationAncestors: LinkRef[];
@@ -243,6 +282,7 @@ export type TourCategoryDetail = {
   description?: string;
   image?: ImageAsset;
   seo: SeoView;
+  tourCount: number;
 };
 
 /** Filters for tour listings. All optional; values come from the URL. */
@@ -291,7 +331,7 @@ export type VisaCountryDetail = {
   country: LinkRef & { slug: string; isoCode: string };
   passport: PassportRef;
   shortAnswer?: string;
-  description?: string;
+  description?: RichTextDoc;
   importantNotes?: string;
   image?: ImageAsset;
   /**
@@ -326,9 +366,11 @@ export type VisaGuideSummary = {
 export type TravelGuideDetail = Omit<ArticleSummary, "image"> & {
   slug: string;
   image?: ImageAsset;
-  /** Markdown. Rendered by the Journal UI (later phase). */
-  content: string;
-  author?: { name: string; bio?: string };
+  content: RichTextDoc;
+  readingMinutes?: number;
+  author?: { name: string; slug: string; bio?: string; image?: ImageAsset };
+  tags: { name: string; slug: string }[];
+  relatedTours: TourSummary[];
   destination?: LinkRef;
   country?: LinkRef;
   updatedAt: string;

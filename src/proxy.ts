@@ -1,53 +1,70 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { findDestinationScope } from "@/server/repositories/destinations";
-import { findPackageScope, findTourCategoryBySlug } from "@/server/repositories/packages";
+import { createServerClient } from "@supabase/ssr";
+import { packageExists } from "@/server/repositories/packages";
+import { destinationExists } from "@/server/repositories/destinations";
+import { findTourCategoryBySlug } from "@/server/repositories/packages";
 import { visaGuideExists, visaTypePageExists } from "@/server/repositories/visa";
-import { CATEGORY_SUFFIX, routes } from "@/lib/routes";
-import type { TourScope } from "@/types/content";
+import { blogCategoryExists, postExists } from "@/server/repositories/blog";
+import { findActiveRedirects, recordRedirectHit, type RedirectRule } from "@/server/repositories/redirects";
+import { cmsPageExists } from "@/server/repositories/pages";
+
+/** Top-level segments owned by fixed routes; anything else is a CMS page (/{slug}/). */
+const FIXED_SEGMENTS = new Set([
+  "admin", "packages", "destinations", "tours", "international-tours", "domestic-tours", "visa", "blog",
+  "plan-your-trip", "contact", "faq", "search", "thank-you", "__not-found__", "_next",
+]);
 
 /**
- * Real HTTP status codes and clean URLs for database-driven travel pages.
+ * Runs before every page request.
  *
- * Why this exists: with Cache Components + Partial Prefetching, a URL whose
- * params weren't prerendered is answered with the route's App Shell straight
- * away (status 200), so notFound()/redirect() inside a page can only produce a
- * "soft" 404 or a client-side redirect. Proxy runs first and does a tiny
- * indexed lookup, so that:
+ * 1. CMS redirects (public.redirects): old URLs 301/302 to their new home.
+ *    Slug changes on published content add rows automatically (DB trigger).
+ *    The whole table is held in memory and refreshed every minute.
  *
- *   /{scope}-tours/{destination}/[{package}/]
- *     unknown -> real 404; wrong scope -> 308 to the one canonical URL
- *   /{style}-tours/            (e.g. /family-tours/)
- *     known style -> rewritten to the internal /tour-styles/{style}/ route
- *     unknown     -> real 404
- *   /tour-styles/{style}/      -> 308 to /{style}-tours/ (one canonical URL)
- *   /visa/{country}/[{type}/]  unknown country, or a visa type without its
- *                              own page (thin content) -> real 404
+ * 2. Real HTTP 404s for database-driven pages. With Cache Components + Partial
+ *    Prefetching, a URL whose params weren't prerendered gets the App Shell
+ *    with status 200, so notFound() in a page can only produce a soft 404.
+ *    A tiny indexed lookup here returns a real 404 for unknown slugs:
+ *      /packages/{slug}/   /destinations/{slug}/   /tours/{category}/
+ *      /visa/{guide}/[{type}/]   /blog/{slug}/   /blog/category/{slug}/
  *
- * Valid pages pass straight through to their cached HTML. Pages keep their own
- * notFound()/permanentRedirect() as a second line of defence. Lookups are
- * memoised per server instance for a minute.
+ * Lookups are memoised per server instance for a minute. A lookup failure
+ * never takes the site down: the request continues and the page decides.
  */
 
 export const config = {
-  matcher: [
-    "/international-tours/:destination/:package*",
-    "/domestic-tours/:destination/:package*",
-    "/tour-styles/:category*",
-    "/visa/:country/:visaType*",
-    "/:style([a-z0-9-]+-tours)",
-  ],
+  matcher: ["/((?!_next/|api/|favicon|robots.txt|sitemap|uploads/|.*\\.[a-z0-9]+$).*)"],
 };
 
-const SCOPE_BY_SEGMENT: Record<string, TourScope> = {
-  "international-tours": "INTERNATIONAL",
-  "domestic-tours": "DOMESTIC",
-};
+/**
+ * /admin: refresh the Supabase session cookies (Server Components can't set
+ * cookies). This only keeps tokens fresh; every admin page and action still
+ * verifies the user and their permissions on the server.
+ */
+async function refreshAdminSession(request: NextRequest) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  let response = NextResponse.next({ request });
+  if (!url || !key) return response;
+  const supabase = createServerClient(url, key, {
+    cookies: {
+      getAll: () => request.cookies.getAll(),
+      setAll: (list) => {
+        list.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        list.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+      },
+    },
+  });
+  await supabase.auth.getUser();
+  return response;
+}
 
 const TTL_MS = 60_000;
-const MAX_ENTRIES = 500;
-const memo = new Map<string, { value: string | null; expires: number }>();
+const MAX_ENTRIES = 1000;
+const memo = new Map<string, { value: boolean; expires: number }>();
 
-async function lookup(key: string, load: () => Promise<string | null>) {
+async function exists(key: string, load: () => Promise<boolean>) {
   const hit = memo.get(key);
   if (hit && hit.expires > Date.now()) return hit.value;
   const value = await load();
@@ -56,72 +73,96 @@ async function lookup(key: string, load: () => Promise<string | null>) {
   return value;
 }
 
+let redirectCache: { map: Map<string, RedirectRule>; expires: number } | null = null;
+async function redirects() {
+  if (!redirectCache || redirectCache.expires < Date.now()) {
+    redirectCache = { map: await findActiveRedirects(), expires: Date.now() + TTL_MS };
+  }
+  return redirectCache.map;
+}
+
 /** A path with no route: Next renders the site's 404 page with a 404 status. */
 const notFound = (request: NextRequest) => NextResponse.rewrite(new URL("/__not-found__/", request.url));
 
-const redirect = (request: NextRequest, path: string) => NextResponse.redirect(new URL(path, request.url), 308);
-
 export async function proxy(request: NextRequest) {
-  const [segment, second, third, ...rest] = request.nextUrl.pathname.split("/").filter(Boolean);
-  if (rest.length > 0) return NextResponse.next();
+  const { pathname, search } = request.nextUrl;
 
-  try {
-    // ---- /visa/{country}/ and /visa/{country}/{type}/ (/visa/finder/ is a static page)
-    if (segment === "visa") {
-      if (!second || second === "finder") return NextResponse.next();
-      const key = third ? `vt:${second}/${third}` : `v:${second}`;
-      try {
-        const exists = await lookup(key, async () =>
-          (third ? await visaTypePageExists(second, third) : await visaGuideExists(second)) ? "1" : null,
-        );
-        return exists ? NextResponse.next() : notFound(request);
-      } catch (error) {
-        console.error("[proxy] visa lookup failed", error);
-        return NextResponse.next();
-      }
+  if (pathname === "/admin" || pathname.startsWith("/admin/")) {
+    // No session cookie at all: send straight to the login page (real 307).
+    // Pages still verify the session; this just avoids rendering the shell.
+    const hasSession = request.cookies.getAll().some((c) => c.name.startsWith("sb-") || c.name === "yojo_dev_staff");
+    if (!hasSession && !pathname.startsWith("/admin/login")) {
+      return NextResponse.redirect(new URL("/admin/login/", request.url), 307);
     }
-
-    // ---- /tour-styles/{style}/ -> canonical /{style}-tours/
-    if (segment === "tour-styles") {
-      return second ? redirect(request, routes.tourCategory(second)) : notFound(request);
-    }
-
-    const requestedScope = SCOPE_BY_SEGMENT[segment];
-
-    // ---- /{style}-tours/ (scope listings /international-tours/ pass through)
-    if (!requestedScope) {
-      if (second || !segment?.endsWith(CATEGORY_SUFFIX)) return NextResponse.next();
-      const slug = segment.slice(0, -CATEGORY_SUFFIX.length);
-      const toStylePage = NextResponse.rewrite(
-        new URL(`/tour-styles/${slug}/${request.nextUrl.search}`, request.url),
-      );
-      try {
-        const exists = await lookup(`c:${slug}`, async () => ((await findTourCategoryBySlug(slug)) ? "1" : null));
-        return exists ? toStylePage : notFound(request);
-      } catch (error) {
-        // Lookup failed: still route to the page, which does its own check.
-        console.error("[proxy] category lookup failed", error);
-        return toStylePage;
-      }
-    }
-
-    if (!second) return NextResponse.next();
-
-    // ---- /{scope}-tours/{destination}/{package}/
-    if (third) {
-      const scope = await lookup(`p:${second}/${third}`, () => findPackageScope(second, third));
-      if (!scope) return notFound(request);
-      if (scope !== requestedScope) return redirect(request, routes.tour(scope as TourScope, second, third));
+    try {
+      return await refreshAdminSession(request);
+    } catch (error) {
+      console.error("[proxy] admin session refresh failed", error);
       return NextResponse.next();
     }
+  }
 
-    // ---- /{scope}-tours/{destination}/
-    const scope = await lookup(`d:${second}`, () => findDestinationScope(second));
-    if (!scope) return notFound(request);
-    if (scope !== requestedScope) return redirect(request, routes.destination(scope as TourScope, second));
-    return NextResponse.next();
+  // ---- 1. CMS redirects (match with or without the trailing slash)
+  try {
+    const map = await redirects();
+    const rule = map.get(pathname) ?? map.get(pathname.endsWith("/") ? pathname.slice(0, -1) : `${pathname}/`);
+    if (rule) {
+      recordRedirectHit(map.has(pathname) ? pathname : pathname.endsWith("/") ? pathname.slice(0, -1) : `${pathname}/`);
+      const target = /^https?:\/\//.test(rule.to) ? new URL(rule.to) : new URL(rule.to + search, request.url);
+      return NextResponse.redirect(target, rule.status);
+    }
   } catch (error) {
-    // Never take the site down over a lookup: let the page handle it.
+    console.error("[proxy] redirect lookup failed", error);
+  }
+
+  // ---- 2. Real 404s for unknown slugs
+  const [segment, second, third, ...rest] = pathname.split("/").filter(Boolean);
+  if (segment && !second && !FIXED_SEGMENTS.has(segment)) {
+    try {
+      const found = /^[a-z0-9-]{1,120}$/.test(segment) && (await exists(`pg:${segment}`, () => cmsPageExists(segment)));
+      return found ? NextResponse.next() : notFound(request);
+    } catch (error) {
+      console.error("[proxy] page lookup failed", error);
+      return NextResponse.next();
+    }
+  }
+  if (!second || rest.length > 0) return NextResponse.next();
+
+  try {
+    let found = true;
+    switch (segment) {
+      case "packages":
+        if (third) return notFound(request);
+        found = await exists(`p:${second}`, () => packageExists(second));
+        break;
+      case "destinations":
+        if (third) return notFound(request);
+        found = await exists(`d:${second}`, () => destinationExists(second));
+        break;
+      case "tours":
+        if (third) return notFound(request);
+        found = await exists(`c:${second}`, async () => Boolean(await findTourCategoryBySlug(second)));
+        break;
+      case "visa":
+        if (second === "finder") return NextResponse.next();
+        found = third
+          ? await exists(`vt:${second}/${third}`, () => visaTypePageExists(second, third))
+          : await exists(`v:${second}`, () => visaGuideExists(second));
+        break;
+      case "blog":
+        if (second === "category") {
+          found = third ? await exists(`bc:${third}`, () => blogCategoryExists(third)) : false;
+        } else if (third) {
+          return notFound(request);
+        } else {
+          found = await exists(`b:${second}`, () => postExists(second));
+        }
+        break;
+      default:
+        return NextResponse.next();
+    }
+    return found ? NextResponse.next() : notFound(request);
+  } catch (error) {
     console.error("[proxy] route lookup failed", error);
     return NextResponse.next();
   }

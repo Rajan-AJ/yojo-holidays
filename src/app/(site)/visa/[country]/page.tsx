@@ -1,3 +1,4 @@
+import { richTextToPlain } from "@/lib/rich-text";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -48,7 +49,7 @@ export async function generateMetadata({ params }: PageProps<"/visa/[country]">)
   return buildMetadata({
     title: `${guide.country.name} Visa for ${who}: Requirements & Process`,
     description:
-      truncateDescription(guide.description) ??
+      truncateDescription(richTextToPlain(guide.description) || guide.shortAnswer) ??
       `What ${who} need to know about a ${guide.country.name} visa: visa types, documents and how to apply, with help from ${siteConfig.name}.`,
     path: guide.country.href,
     image: guide.image,
@@ -130,10 +131,10 @@ export default async function VisaCountryPage({ params }: PageProps<"/visa/[coun
 
       {visaTypes.length > 1 && (
         <nav aria-label={`${country.name} visa types`} className="border-b border-line">
-          <Container className="flex flex-wrap items-center gap-x-6 gap-y-2 py-5 text-body-sm">
+          <Container className="flex flex-wrap items-center gap-x-6 gap-y-0 py-3 text-body-sm">
             <span className="eyebrow text-muted">Visa types</span>
             {visaTypes.map((t) => (
-              <Link key={t.slug} href={t.href} className="underline underline-offset-4 hover:text-accent-strong">
+              <Link key={t.slug} href={t.href} className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-accent-strong">
                 {t.name}
               </Link>
             ))}

@@ -1,181 +1,150 @@
 /**
- * Data-flow verification for the content architecture (Phase 3).
- * Run with `npm run db:verify` after `npx prisma db seed`.
+ * Data-flow verification: calls every public repository function against the
+ * database in DATABASE_URL and checks the results make sense.
  *
- * Exercises the real repositories and write services against the database,
- * plus the CHECK / unique constraints. Every row it creates is removed again.
+ *   npm run db:local            (in another terminal)
+ *   npm run db:verify
+ *
+ * Run with --conditions=react-server so `server-only` imports resolve.
  */
-import "dotenv/config"; // must load before @/lib/db reads DATABASE_URL
-import { db } from "@/lib/db";
-import { findCountryBySlug, findDestinationBySlug, findFeaturedDestinations } from "@/server/repositories/destinations";
-import { findFeaturedPackages, findPackageBySlug, findPackages, findRelatedPackages } from "@/server/repositories/packages";
-import {
-  findCommonVisaDocuments,
-  findGeneralVisaFaqs,
-  findVisaCountryBySlug,
-  findVisaGuides,
-  findVisaMatch,
-  findVisaPassports,
-  findVisaTypeBySlug,
-} from "@/server/repositories/visa";
-import { findGuideBySlug, findLatestGuides } from "@/server/repositories/guides";
-import { findFaqsForPackage, findHomepageFaqs, findPublishedReviews } from "@/server/repositories/engagement";
-import { createEnquiry, createLead } from "@/server/services/leads";
-import { slug as slugSchema, slugify } from "@/server/validation/common";
+import * as destinations from "@/server/repositories/destinations";
+import * as packages from "@/server/repositories/packages";
+import * as visa from "@/server/repositories/visa";
+import * as blog from "@/server/repositories/blog";
+import * as engagement from "@/server/repositories/engagement";
+import * as search from "@/server/repositories/search";
+import * as settings from "@/server/repositories/settings";
+import { findActiveRedirects } from "@/server/repositories/redirects";
+import { createLead } from "@/server/services/leads";
+import { pool } from "@/lib/db";
 
 let failures = 0;
-function check(name: string, ok: unknown, detail?: unknown) {
-  if (ok) console.log(`  PASS  ${name}`);
-  else {
-    failures++;
-    console.log(`  FAIL  ${name}`, detail ?? "");
-  }
-}
-
-/** Resolves true if the promise is rejected (used for constraint tests). */
-async function rejects(promise: Promise<unknown>) {
+async function check(label: string, run: () => Promise<unknown>, ok: (v: never) => boolean = () => true) {
   try {
-    await promise;
-    return false;
-  } catch {
-    return true;
+    const value = await run();
+    const pass = ok(value as never);
+    if (!pass) failures++;
+    const size = Array.isArray(value) ? `${value.length} rows` : value === null ? "null" : typeof value;
+    console.log(pass ? "✔" : "✘", label, `(${size})`);
+    return value;
+  } catch (error) {
+    failures++;
+    console.log("✘", label, "->", (error as Error).message);
+    return undefined;
   }
 }
 
-const cleanup: (() => Promise<unknown>)[] = [];
+const nonEmpty = (v: unknown[]) => v.length > 0;
+const present = (v: unknown) => v !== null && v !== undefined;
 
 async function main() {
-  console.log("Relationships");
+  // Destinations
+  await check("featured destinations", () => destinations.findFeaturedDestinations(), nonEmpty);
+  await check("top-level destinations (international)", () => destinations.findTopLevelDestinations("INTERNATIONAL"), nonEmpty);
+  await check("top-level destinations (domestic)", () => destinations.findTopLevelDestinations("DOMESTIC"), nonEmpty);
+  const vietnam = (await check("destination: vietnam", () => destinations.findDestinationBySlug("vietnam"), present)) as Awaited<
+    ReturnType<typeof destinations.findDestinationBySlug>
+  >;
+  if (vietnam) {
+    console.log(`   places=${vietnam.places.length} tours=${vietnam.tourCount} tips=${vietnam.travelTips.length} visa=${Boolean(vietnam.visa)} seo=${vietnam.seo.title}`);
+  }
+  await check("destination: unknown -> null", () => destinations.findDestinationBySlug("atlantis"), (v) => v === null);
+  await check("destination FAQs (vietnam)", () => destinations.findFaqsForDestination("vietnam"), nonEmpty);
+  await check("destinations by country (VN)", () => destinations.findDestinationsByCountry("vietnam"), nonEmpty);
+  await check("regions with countries", () => destinations.findRegionsWithCountries(), nonEmpty);
+  await check("destination slugs", () => destinations.findDestinationSlugs(), nonEmpty);
 
-  // 1-2. Region can be created; Country belongs to a Region
-  const region = await db.region.create({ data: { name: "Verify Region", slug: "verify-region" } });
-  cleanup.push(() => db.region.delete({ where: { id: region.id } }));
-  check("1. Region can be created", region.id);
-  const vn = await db.country.findUnique({ where: { slug: "vietnam" }, include: { region: { include: { parent: true } } } });
-  check("2. Country belongs to a Region (Vietnam -> Southeast Asia -> Asia)", vn?.region.slug === "southeast-asia" && vn.region.parent?.slug === "asia");
+  // Packages
+  await check("featured packages", () => packages.findFeaturedPackages(), nonEmpty);
+  await check("packages: international", () => packages.findPackages({ scope: "INTERNATIONAL" }), nonEmpty);
+  await check("packages: domestic", () => packages.findPackages({ scope: "DOMESTIC" }), nonEmpty);
+  await check("packages: destination hanoi (via package_destinations)", () => packages.findPackages({ destination: "hanoi" }), nonEmpty);
+  await check("packages: category honeymoon", () => packages.findPackages({ category: "honeymoon" }), nonEmpty);
+  await check("packages: country vietnam", () => packages.findPackages({ country: "vietnam" }), nonEmpty);
+  await check("packages: duration week", () => packages.findPackages({ duration: "week" }), nonEmpty);
+  await check("listing facets", () => packages.findListingFacets({ scope: "INTERNATIONAL" }), (v: { total: number }) => v.total > 0);
+  const pkg = (await check("package: vietnam-7-days-6-nights", () => packages.findPackageBySlug("vietnam-7-days-6-nights"), present)) as Awaited<
+    ReturnType<typeof packages.findPackageBySlug>
+  >;
+  if (pkg) {
+    console.log(
+      `   days=${pkg.itinerary.length} activities(day2)=${pkg.itinerary[1]?.activities.length} hotels=${pkg.hotels.length} ` +
+        `incl=${pkg.inclusions.length} excl=${pkg.exclusions.length} types=${pkg.includedTypes.join("|")} ` +
+        `gallery=${pkg.gallery.length} policies=${pkg.policies.length} visa=${Boolean(pkg.visa)} cats=${pkg.categoryRefs.length}`,
+    );
+    await check("related packages", () => packages.findRelatedPackages(pkg), nonEmpty);
+  }
+  await check("package FAQs (shared FAQ)", () => packages.findFaqsForPackage("kerala-5-days-4-nights"), nonEmpty);
+  await check("package: unknown -> null", () => packages.findPackageBySlug("nope"), (v) => v === null);
+  await check("package exists", () => packages.packageExists("japan-5-days-4-nights"), (v) => v === true);
+  await check("showcase itinerary", () => packages.findShowcaseItinerary(), present);
+  await check("tour categories", () => packages.findTourCategories(), (v: unknown[]) => v.length === 7);
+  await check("tour category: family", () => packages.findTourCategoryBySlug("family"), present);
 
-  // 3. Destination belongs to a Country (and to a parent destination)
-  const hanoi = await db.destination.findUnique({ where: { slug: "hanoi" }, include: { country: true, parent: true } });
-  check("3. Destination belongs to a Country (Hanoi -> Vietnam)", hanoi?.country.slug === "vietnam" && hanoi.parent?.slug === "vietnam");
+  // Visa
+  await check("visa passports", () => visa.findVisaPassports(), nonEmpty);
+  await check("visa guides (IN)", () => visa.findVisaGuides("IN"), nonEmpty);
+  await check("visa guide: japan", () => visa.findVisaCountryBySlug("japan"), present);
+  await check("visa type page: japan/tourist-visa", () => visa.findVisaTypeBySlug("japan", "tourist-visa"), present);
+  await check("visa type page: vietnam/tourist-visa is too thin -> null", () => visa.findVisaTypeBySlug("vietnam", "tourist-visa"), (v) => v === null);
+  await check("visa match", () => visa.findVisaMatch("IN", "japan", "BUSINESS"), (v: { status: string }) => v.status === "match");
+  await check("visa params", () => visa.findVisaParams(), (v: { countries: string[] }) => v.countries.length > 0);
+  await check("common visa documents", () => visa.findCommonVisaDocuments(), nonEmpty);
+  await check("general visa FAQs", () => visa.findGeneralVisaFaqs(), nonEmpty);
 
-  // 4-7. Package -> Destination, days, highlights, hotels (via the repository)
-  const pkg = await findPackageBySlug("vietnam", "vietnam-7-days-6-nights");
-  check("4. Tour Package belongs to a Destination", pkg?.destinationRef.slug === "vietnam");
-  check("5. Package has multiple itinerary days, ordered 1..n", pkg?.itinerary.length === 7 && pkg.itinerary.every((d, i) => d.dayNumber === i + 1));
-  check("   Itinerary day resolves location + hotel", pkg?.itinerary[2].location === "Ha Long Bay" && pkg.itinerary[2].accommodation === "Sample Bay Cruise");
-  check("6. Package has highlights", (pkg?.highlights.length ?? 0) === 3);
-  check("7. Package has hotels with nights", pkg?.hotels.map((h) => h.nights).join(",") === "2,1,3");
-  check("   Package price null -> 'price on request' (no invented price)", pkg?.price.amount === null);
-  check("   Package categories (many-to-many)", pkg?.categoryRefs.map((c) => c.name).sort().join(",") === "Family,Group");
-  check("   Package links to its visa page", pkg?.visa?.href === "/visa/vietnam/");
-  check("   Related tours exclude the current package", pkg ? (await findRelatedPackages(pkg)).every((t) => !t.href.endsWith("vietnam-7-days-6-nights/")) && (await findRelatedPackages(pkg)).length >= 1 : false);
-  check("   Filters: destination + duration", (await findPackages({ destination: "vietnam", duration: "week" })).length === 1 && (await findPackages({ destination: "vietnam", duration: "long" })).length === 0);
-  const dupDay = await rejects(
-    db.itineraryDay.create({ data: { packageId: (await db.tourPackage.findFirstOrThrow({ where: { slug: "vietnam-7-days-6-nights" } })).id, dayNumber: 1, title: "Duplicate" } }),
+  // Blog
+  await check("latest posts", () => blog.findLatestPosts(), nonEmpty);
+  await check("posts in category", () => blog.findLatestPosts({ category: "visa-guides" }), nonEmpty);
+  await check("posts by tag", () => blog.findLatestPosts({ tag: "vietnam" }), nonEmpty);
+  await check("posts for destination", () => blog.findLatestPosts({ destinationSlug: "vietnam" }), nonEmpty);
+  await check("post detail", () => blog.findPostBySlug("best-time-to-visit-vietnam"), (v: { relatedTours: unknown[]; faqs: unknown[] }) =>
+    v.relatedTours.length > 0 && v.faqs.length > 0,
   );
-  check("   dayNumber is unique within a package", dupDay);
+  await check("blog categories", () => blog.findBlogCategories(), nonEmpty);
 
-  // 8-9. Visa (guides are per destination + passport)
-  const visa = await findVisaCountryBySlug("vietnam");
-  check("8. Visa information belongs to a Country (for the Indian passport)", visa?.country.slug === "vietnam" && visa.passport.isoCode === "IN" && visa.passport.demonym === "Indian");
-  check("9. Visa Type belongs to visa info, with documents, steps + FAQs", visa?.visaTypes[0]?.requirements.length === 3 && visa.visaTypes[0].steps.length === 3 && visa.visaTypes[0].faqs.length === 1);
-  check("   Unverified guide: fee and processing time withheld", visa?.verified === false && visa.visaTypes[0].fee.amount === null && visa.visaTypes[0].processingTime === undefined);
-  check("   Unverified guide: visa kind not guessed", visa?.visaTypes[0].kind === null);
-  check("   Guide links to the country's destination page", visa?.destination?.href === "/international-tours/vietnam/");
-  check("   One guide per destination + passport (unique)", await rejects(
-    db.visaCountry.create({ data: { countryId: vn!.id, passportCountryId: (await db.country.findUniqueOrThrow({ where: { isoCode: "IN" } })).id } }),
-  ));
-  console.log("Visa Finder");
-  check("   Passports offered: India", (await findVisaPassports()).map((p) => p.isoCode).join() === "IN");
-  const guides = await findVisaGuides("IN");
-  check("   Destinations for the Indian passport: Japan, Vietnam", guides.map((g) => g.countrySlug).join() === "japan,vietnam");
-  check("   Purposes come from the data (Japan: tourism + business)", guides[0].purposes.join() === "TOURISM,BUSINESS");
-  check("   Match: India -> Vietnam -> tourism", (await findVisaMatch("IN", "vietnam", "TOURISM")).status === "match");
-  check("   No type: India -> Vietnam -> business", (await findVisaMatch("IN", "vietnam", "BUSINESS")).status === "no-type");
-  check("   No guide: unknown destination", (await findVisaMatch("IN", "atlantis", "TOURISM")).status === "no-guide");
-  check("   No guide: passport without guides", (await findVisaMatch("US", "vietnam", "TOURISM")).status === "no-guide");
-  check("   Thin type stays on the country page (Vietnam tourist)", (await findVisaTypeBySlug("vietnam", "tourist-visa")) === null && visa?.visaTypes[0].href === "/visa/vietnam/#tourist-visa");
-  check("   Substantial type gets its own page (Japan business)", (await findVisaTypeBySlug("japan", "business-visa"))?.type.href === "/visa/japan/business-visa/");
-  check("   Common documents counted from data", (await findCommonVisaDocuments()).length > 0);
-  check("   General visa FAQs (placement VISA)", (await findGeneralVisaFaqs()).length === 2);
+  // Engagement, search, settings, redirects
+  await check("homepage FAQs", () => engagement.findHomepageFaqs(), nonEmpty);
+  await check("general FAQs", () => engagement.findGeneralFaqs(), nonEmpty);
+  await check("testimonials (none seeded)", () => engagement.findPublishedReviews(), (v: unknown[]) => v.length === 0);
+  await check("search: 'tokyo' finds the Japan tour", () => search.searchContent("tokyo"), (v: { tours: unknown[] }) => v.tours.length > 0);
+  await check("search: 'backwaters' (full text)", () => search.searchContent("backwaters"), (v: { destinations: unknown[] }) => v.destinations.length > 0);
+  await check("search suggestions", () => search.findSearchSuggestions(), nonEmpty);
+  await check("site settings", () => settings.findSiteSettings(), present);
+  await check("redirects", () => findActiveRedirects(), () => true);
 
-  // 10. Guide -> Destination
-  const guide = await findGuideBySlug("best-time-to-visit-vietnam");
-  check("10. Travel Guide belongs to a Destination", guide?.destination?.href === "/international-tours/vietnam/");
-  const visaGuide = await findGuideBySlug("vietnam-visa-for-indians");
-  check("    Country-level guide links to visa page + related guide", visaGuide?.country?.href === "/visa/vietnam/" && visaGuide.related.length === 1);
-
-  // 11. FAQs
-  check("11. FAQs connect to package", (await findFaqsForPackage("vietnam", "vietnam-7-days-6-nights")).length === 1);
-  check("    FAQs connect to guide", guide?.faqs.length === 1);
-  check("    Homepage FAQs (no owner)", (await findHomepageFaqs()).length === 4);
-  const twoOwners = await rejects(
-    db.fAQ.create({
-      data: { question: "x", answer: "y", packageId: (await db.tourPackage.findFirstOrThrow()).id, destinationId: hanoi!.id },
+  // Write path: a lead with attribution, then the same again (double submit)
+  const form = {
+    name: "Verify Script",
+    phone: "98765 00001",
+    email: "verify@example.com",
+    packageSlug: "vietnam-7-days-6-nights",
+    adults: "2",
+    budget: "1l-2l",
+    formPath: "/packages/vietnam-7-days-6-nights/",
+    attribution: JSON.stringify({
+      first: { utm_source: "google", utm_medium: "cpc", utm_campaign: "vietnam-q4", gclid: "abc123", landing_path: "/" },
+      last: { referrer: "https://www.instagram.com/", landing_path: "/packages/vietnam-7-days-6-nights/" },
     }),
+  };
+  const first = (await check("createLead", () => createLead(form, { userAgent: "Mozilla/5.0 (iPhone)" }), (v: { ok: boolean }) => v.ok)) as
+    | { ok: true; reference: string }
+    | undefined;
+  await check("createLead (double submit -> same reference)", () => createLead(form), (v: { ok: boolean; reference?: string }) =>
+    v.ok && v.reference === first?.reference,
   );
-  check("    CHECK: an FAQ cannot have two owners", twoOwners);
+  await check("createLead rejects a bad phone", () => createLead({ ...form, phone: "12" }), (v: { ok: boolean }) => !v.ok);
+  const touch = await pool.query(
+    `select t.touch, c.code from public.lead_touchpoints t join public.marketing_channels c on c.id = t.channel_id
+      join public.leads l on l.id = t.lead_id where l.lead_number = $1 order by t.touch`,
+    [Number(first?.reference.slice(3))],
+  );
+  const channels = touch.rows.map((r) => `${r.touch}:${r.code}`).join(",");
+  console.log(channels === "first:google-ads,last:instagram" ? "✔" : "✘", "attribution channels", channels);
+  if (channels !== "first:google-ads,last:instagram") failures++;
 
-  // 12. Reviews (created and removed here; none are seeded)
-  const pkgRow = await db.tourPackage.findFirstOrThrow({ where: { slug: "vietnam-7-days-6-nights" } });
-  const review = await db.review.create({
-    data: { travellerName: "Verification Script", rating: 5, content: "Temporary test row.", packageId: pkgRow.id, status: "PUBLISHED", isSample: true },
-  });
-  cleanup.push(() => db.review.delete({ where: { id: review.id } }));
-  const reviews = await findPublishedReviews({ packageId: pkgRow.id });
-  check("12. Review connects to a package", reviews.length === 1 && reviews[0].destination === "Vietnam");
-  check("    CHECK: rating must be 1-5", await rejects(db.review.create({ data: { travellerName: "x", rating: 6, content: "x" } })));
-
-  // 13. Leads reference packages (through the validated write service)
-  const lead = await createLead({
-    name: "Verification Script",
-    phone: "+91 00000 00000",
-    travellers: "2",
-    landingPage: "/international-tours/vietnam/",
-    packageRef: { destinationSlug: "vietnam", packageSlug: "vietnam-7-days-6-nights" },
-  });
-  if (lead.ok) cleanup.push(() => db.lead.delete({ where: { id: lead.id } }));
-  const leadRow = lead.ok ? await db.lead.findUnique({ where: { id: lead.id } }) : null;
-  check("13. Lead references a package (resolved from public slugs)", leadRow?.packageId === pkgRow.id && leadRow.travellers === 2);
-  const badLead = await createLead({ name: "", phone: "abc", email: "not-an-email", landingPage: "https://evil.example" });
-  check("    Invalid lead rejected server-side with field errors", !badLead.ok && Object.keys(badLead.fieldErrors).length >= 3);
-  const enquiry = await createEnquiry({ name: "Verification Script", email: "test@example.com", message: "Temporary test enquiry." });
-  if (enquiry.ok) cleanup.push(() => db.enquiry.delete({ where: { id: enquiry.id } }));
-  check("    Enquiry stored separately from leads", enquiry.ok);
-  check("    Enquiry without any contact detail rejected", !(await createEnquiry({ name: "x", message: "hello there" })).ok);
-
-  // 14. Slugs
-  console.log("Slugs");
-  check("14. Package found by clean URL parts", (await findPackageBySlug("vietnam", "vietnam-7-days-6-nights")) !== null);
-  check("    Wrong destination for a package slug returns nothing", (await findPackageBySlug("japan", "vietnam-7-days-6-nights")) === null);
-  check("    slugify('Vietnam 7 Days / 6 Nights')", slugify("Vietnam 7 Days / 6 Nights") === "vietnam-7-days-6-nights", slugify("Vietnam 7 Days / 6 Nights"));
-  check("    Zod rejects 'Bad Slug!'", !slugSchema.safeParse("Bad Slug!").success);
-  check("    CHECK rejects a malformed slug in the database", await rejects(db.region.create({ data: { name: "Bad", slug: "Bad Slug" } })));
-  check("    Unique slug enforced", await rejects(db.destination.create({ data: { name: "Dup", slug: "vietnam", type: "CITY", scope: "INTERNATIONAL", countryId: vn!.id } })));
-
-  console.log("Listing queries");
-  check("Featured destinations", (await findFeaturedDestinations()).length === 3);
-  check("Featured packages", (await findFeaturedPackages()).length === 2);
-  check("Packages by category (family)", (await findPackages({ category: "family" })).length === 2);
-  check("Country page data (Vietnam: destinations + visa link)", (await findCountryBySlug("vietnam"))?.visaHref === "/visa/vietnam/");
-  check("Destination page data (Vietnam: gallery + related + SEO)", await findDestinationBySlug("vietnam").then((d) => d?.gallery.length === 2 && d.related[0]?.name === "Japan" && d.seo.title?.includes("sample")));
-  check("Latest guides", (await findLatestGuides()).length === 2);
-  check("Draft content is hidden", await (async () => {
-    await db.tourPackage.update({ where: { id: pkgRow.id }, data: { status: "DRAFT" } });
-    const hidden = (await findPackageBySlug("vietnam", "vietnam-7-days-6-nights")) === null;
-    await db.tourPackage.update({ where: { id: pkgRow.id }, data: { status: "PUBLISHED" } });
-    return hidden;
-  })());
+  console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL CHECKS PASSED");
+  await pool.end();
+  process.exit(failures ? 1 : 0);
 }
 
-main()
-  .catch((error) => {
-    failures++;
-    console.error(error);
-  })
-  .finally(async () => {
-    for (const undo of cleanup.reverse()) await undo().catch(() => {});
-    await db.$disconnect();
-    console.log(failures ? `\n${failures} check(s) failed` : "\nAll checks passed");
-    process.exitCode = failures ? 1 : 0;
-  });
+main();

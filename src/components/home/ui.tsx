@@ -37,7 +37,7 @@ export function Eyebrow({
   return (
     <p
       className={cn(
-        "mb-3 inline-flex items-center gap-2 text-[11.5px] font-bold uppercase tracking-[0.1em] text-brand-pink",
+        "mb-3 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-brand-pink",
         className,
       )}
     >
@@ -162,4 +162,4 @@ export const cardClass =
 
 /** Small white pill over imagery. */
 export const imagePillClass =
-  "rounded-full bg-white/90 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-wide text-brand-navy backdrop-blur-sm";
+  "rounded-full bg-white/90 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-brand-navy backdrop-blur-sm";

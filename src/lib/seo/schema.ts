@@ -4,6 +4,7 @@ import type {
   FaqItem,
   ReviewView,
   TourPackageDetail,
+  TravelGuideDetail,
 } from "@/types/content";
 
 /**
@@ -85,7 +86,12 @@ function realRatings(reviews: ReviewView[]) {
  * provider) plus, only when real data supports it, a Product with an Offer
  * (real starting price) and/or AggregateRating (real published reviews).
  */
-export function tourSchemas(pkg: TourPackageDetail, reviews: ReviewView[]): JsonLdObject[] {
+export function tourSchemas(
+  pkg: TourPackageDetail,
+  reviews: ReviewView[],
+  /** All real published testimonials for the package (preferred over the shown subset). */
+  rating?: { count: number; average: number } | null,
+): JsonLdObject[] {
   if (pkg.isSample) return [];
   const url = absoluteUrl(pkg.href);
   const image = pkg.image ? absoluteUrl(pkg.image.src) : undefined;
@@ -110,9 +116,11 @@ export function tourSchemas(pkg: TourPackageDetail, reviews: ReviewView[]): Json
     }),
   };
 
-  const ratings = realRatings(reviews);
+  const shown = realRatings(reviews);
+  const aggregate =
+    rating ?? (shown.length > 0 ? { count: shown.length, average: Number((shown.reduce((a, b) => a + b, 0) / shown.length).toFixed(1)) } : null);
   const hasPrice = pkg.price.amount !== null;
-  if (!hasPrice && ratings.length === 0) return [trip];
+  if (!hasPrice && !aggregate) return [trip];
 
   const product: JsonLdObject = {
     "@type": "Product",
@@ -129,11 +137,11 @@ export function tourSchemas(pkg: TourPackageDetail, reviews: ReviewView[]): Json
         url,
       },
     }),
-    ...(ratings.length > 0 && {
+    ...(aggregate && {
       aggregateRating: {
         "@type": "AggregateRating",
-        ratingValue: Number((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1)),
-        reviewCount: ratings.length,
+        ratingValue: aggregate.average,
+        reviewCount: aggregate.count,
         bestRating: 5,
         worstRating: 1,
       },
@@ -166,5 +174,24 @@ export function visaServiceSchema({
     provider: { "@id": organizationId },
     ...(description && { description }),
     ...(country && { areaServed: { "@type": "Country", name: country } }),
+  };
+}
+
+/** A blog article (never emitted for sample posts). */
+export function blogPostingSchema(post: TravelGuideDetail): JsonLdObject | null {
+  if (post.isSample) return null;
+  return {
+    "@type": "BlogPosting",
+    headline: post.title,
+    url: absoluteUrl(post.href),
+    ...(post.excerpt && { description: post.excerpt }),
+    ...(post.image && { image: absoluteUrl(post.image.src) }),
+    ...(post.publishedAt && { datePublished: post.publishedAt }),
+    dateModified: post.updatedAt,
+    author: post.author
+      ? { "@type": "Person", name: post.author.name, url: absoluteUrl(`/authors/${post.author.slug}/`) }
+      : { "@id": organizationId },
+    publisher: { "@id": organizationId },
+    mainEntityOfPage: absoluteUrl(post.href),
   };
 }

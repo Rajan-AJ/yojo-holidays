@@ -37,11 +37,11 @@ export function FinalCta({
           Tell us where you want to go. We&apos;ll help you plan the rest, from flights and hotels to visas.
         </p>
         <div className="mb-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-          <HomeButton href={primary.href} size="lg" className="h-[54px] px-9">
+          <HomeButton href={primary.href} size="lg" className="h-[54px] w-full max-w-sm px-9 sm:w-auto sm:max-w-none">
             {primary.label}
             <Arrow />
           </HomeButton>
-          <HomeButton href={secondary.href} variant="outline-light" size="lg" className="h-[54px] px-9">
+          <HomeButton href={secondary.href} variant="outline-light" size="lg" className="h-[54px] w-full max-w-sm px-9 sm:w-auto sm:max-w-none">
             {secondary.label}
           </HomeButton>
         </div>

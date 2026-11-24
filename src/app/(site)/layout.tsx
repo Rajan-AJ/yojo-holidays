@@ -1,7 +1,9 @@
-import { getTopLevelDestinations } from "@/server/queries";
+import { getSiteSettings, getTopLevelDestinations } from "@/server/queries";
+import { WhatsAppButton } from "@/components/layout/whatsapp-button";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { MotionProvider } from "@/components/motion/motion-provider";
+import { AttributionCapture } from "@/components/forms/attribution-capture";
 
 /** Destinations shown in the header's India / International dropdowns. */
 async function getHeaderNavDestinations() {
@@ -13,9 +15,9 @@ async function getHeaderNavDestinations() {
   return { DOMESTIC: toLink(domestic), INTERNATIONAL: toLink(international) };
 }
 
-// Public website shell. /admin gets its own layout (Phase 11) without these.
+// Public website shell. /admin has its own layout without these.
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
-  const navDestinations = await getHeaderNavDestinations();
+  const [navDestinations, settings] = await Promise.all([getHeaderNavDestinations(), getSiteSettings()]);
 
   return (
     <MotionProvider>
@@ -28,6 +30,8 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
         {children}
       </main>
       <Footer />
+      <AttributionCapture />
+      {settings?.whatsapp && <WhatsAppButton number={settings.whatsapp} />}
     </MotionProvider>
   );
 }

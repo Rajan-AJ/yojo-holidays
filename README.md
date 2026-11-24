@@ -1,241 +1,159 @@
 # Yojo Holidays
 
-Travel discovery and enquiry platform: tours, destinations, itineraries, visa information, travel journal, lead management and a custom admin dashboard.
+Travel discovery and enquiry platform for Indian travellers: domestic and international packages, destinations, visa guides, a blog, and a lead pipeline with marketing attribution. Every page is generated from the database; nothing travel-related is hard-coded.
 
-**Status:** Phases 1–5 complete (foundation, design system, database + content architecture, dynamic public pages, visa system). See "Roadmap" below.
+**Status:** database (Supabase Postgres + RLS), public site, enquiry flow with attribution, blog, CMS pages, and the admin CMS at `/admin/`. Next: real content, premium design pass, go-live. See [Roadmap](#roadmap).
 
 ## Stack
 
 | Concern | Choice |
 | --- | --- |
 | Framework | Next.js 16.4 (App Router, TypeScript, Cache Components + Partial Prefetching) |
-| Styling | Tailwind CSS v4 (tokens in `src/app/globals.css`) |
-| Animation | Motion (`motion/react`, LazyMotion), reduced-motion aware |
-| Database | PostgreSQL via Prisma 7 (`@prisma/adapter-pg`, no Rust query engine) |
-| Validation | Zod (all writes validated server-side) |
-| Fonts | Playfair Display + Inter, self-hosted variable woff2 via `next/font/local` |
+| Database | PostgreSQL on Supabase. Schema = SQL migrations in `supabase/migrations/` |
+| Data access | `pg` with parameterised SQL in `src/server/repositories` (no ORM) |
+| Auth / files | Supabase Auth (staff), Supabase Storage (`media` public bucket, `private` bucket) |
+| Validation | Zod on every write (`src/server/validation`) + CHECK constraints / domains in the DB |
+| Styling / motion | Tailwind CSS v4 (tokens in `src/app/globals.css`), Motion |
 | Hosting | Vercel-compatible |
 
-## Getting started
+## Getting started (local)
 
-Requirements: Node.js 20.9+ (22 LTS recommended).
-
-```bash
-npm install                        # also runs `prisma generate`
-cp .env.example .env.local         # Next.js reads this
-cp .env.example .env               # Prisma CLI reads this
-```
-
-### Database
-
-Any PostgreSQL 14+ works. For local development without installing PostgreSQL, use Prisma's built-in dev server:
+Requirements: Node.js 24.
 
 ```bash
-npx prisma dev --name yojo --detach   # prints the connection details
-npx prisma dev ls                     # shows them again
+npm install
+cp .env.example .env.local      # defaults point at the local database
+npm run db:local                # terminal 1: Postgres on 127.0.0.1:54322
+npm run dev                     # terminal 2: http://localhost:3000
 ```
 
-Put its **TCP** URL in `DATABASE_URL` and its shadow URL in `SHADOW_DATABASE_URL` (both `.env` and `.env.local`), e.g.
-`postgres://postgres:postgres@localhost:51214/template1?sslmode=disable` and port `51215` for the shadow.
-With a normal PostgreSQL server, leave `SHADOW_DATABASE_URL` empty.
+`npm run db:local` runs a real Postgres (PGlite) with a small Supabase stand-in (`supabase/local/supabase-shim.sql`: API roles, `auth.uid()`, storage tables). On first start it applies every migration and `supabase/seed.sql` (sample content, all flagged `is_sample`). Data persists in `.local-db/`; `npm run db:local -- --reset` starts fresh. New migration files are applied on the next start.
 
-```bash
-npx prisma migrate dev     # apply migrations
-npm run db:seed            # development sample data (refuses to run in production)
-npm run db:verify          # checks every relationship, constraint and query
-npm run dev                # http://localhost:3000
-```
-
-Production: `npm run db:deploy` applies migrations. Never seed production.
-
-### Environment notes
-
-| Variable | Purpose |
+| Command | What it does |
 | --- | --- |
-| `DATABASE_POOL_MAX` | Connections per server process (default 10). Use `1` with the local `prisma dev` database, which only handles one connection reliably. |
-| `NEXT_BUILD_CPUS` | Optional cap on build workers. Pages prerender from the database at build time; `1` keeps the local database stable. Leave unset on a real PostgreSQL server. |
-| `SHOW_SAMPLE_CONTENT` | `true` shows seeded sample content in production builds (local/staging). Must be `false`/unset on the live site. |
+| `npm run check` | ESLint + TypeScript. Must pass. |
+| `npm run db:test` | Applies all migrations to an in-memory database and tests RLS per role, triggers and constraints (65+ checks). |
+| `npm run db:verify` | Calls every repository and the lead write path against `DATABASE_URL`. |
+| `npm run db:verify-admin` | CMS engine: every content type round-trips through load/save, nested children, guards. |
+| `npm run build` | Production build. Pages prerender from the database, so it must be reachable (`NEXT_BUILD_CPUS=1` with the local DB). |
 
-The database must be reachable during `next build` (pages are prerendered from it).
-If the local `prisma dev` database starts dropping connections after many restarts, restart it: `npx prisma dev stop yojo && npx prisma dev --name yojo --detach`.
+## Going live on Supabase
 
-### Scripts
+1. Create a Supabase project (region: Mumbai `ap-south-1`).
+2. Apply the schema: `npx supabase link --project-ref <ref>` then `npx supabase db push` (runs `supabase/migrations/*` in order). **Never** run `supabase/seed.sql` or the local shim against production.
+3. Environment (Vercel → Settings → Environment Variables):
 
-| Script | What it does |
-| --- | --- |
-| `npm run dev` | Development server |
-| `npm run build` / `npm start` | Production build / serve |
-| `npm run lint` / `npm run typecheck` / `npm run check` | ESLint / `tsc --noEmit` / both |
-| `npm run db:validate` | Validate the Prisma schema |
-| `npm run db:migrate` | Create/apply a migration in development |
-| `npm run db:deploy` | Apply migrations in production |
-| `npm run db:seed` | Load development sample data (idempotent) |
-| `npm run db:verify` | End-to-end data-flow verification (cleans up after itself) |
-| `npm run db:studio` | Browse the database |
-
-## Deploying to Vercel (staging preview)
-
-The site renders from PostgreSQL at build time **and** at runtime, so a hosted
-database is required. The local `prisma dev` database only works on your machine.
-
-1. **Database.** Vercel → project → *Storage* → *Create Database* → **Neon**
-   (Postgres). Connect it to this project for all environments. This adds
-   `DATABASE_URL` to the project's environment variables. Use the **pooled**
-   connection string.
-2. **Environment variables** (*Settings → Environment Variables*):
-
-   | Name | Value |
+   | Variable | Value |
    | --- | --- |
-   | `DATABASE_URL` | Neon connection string (added by step 1) |
+   | `DATABASE_URL` | Supabase **transaction pooler** string (port 6543). Server only. |
    | `DATABASE_POOL_MAX` | `5` |
-   | `SHOW_SAMPLE_CONTENT` | `true` while the site only has sample content. `false` on the real launch. |
-   | `NEXT_PUBLIC_ALLOW_INDEXING` | `false` (keeps search engines out). Set `true` only at the real launch. |
-   | `NEXT_PUBLIC_SITE_URL` | Optional. Your final domain, no trailing slash. Defaults to the Vercel production domain. |
+   | `NEXT_PUBLIC_SUPABASE_URL` | Project URL |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon key (public by design; RLS protects data) |
+   | `SUPABASE_SERVICE_ROLE_KEY` | service role key. **Server only**, never `NEXT_PUBLIC_` |
+   | `NEXT_PUBLIC_SITE_URL` | `https://<live domain>` |
+   | `NEXT_PUBLIC_ALLOW_INDEXING` | `true` on the live domain only |
+   | `NEXT_PUBLIC_GTM_ID` | GTM container (Google Ads + Meta conversion tags) |
 
-   Leave `NEXT_BUILD_CPUS` and `SHADOW_DATABASE_URL` unset on Vercel.
-3. **Tables + sample content** (once, from your machine, PowerShell):
-
-   ```powershell
-   $env:DATABASE_URL="<neon connection string>"; npx prisma migrate deploy; npx prisma db seed
-   ```
-
-   The shell value overrides `.env` for that terminal only. Seeding a
-   **staging** database with clearly-marked sample data is fine; the seed
-   refuses to run with `NODE_ENV=production`. For the real launch, use a fresh
-   database with only client-approved content.
-4. **Deploy.** Push to `main` (or *Deployments → Redeploy*). After schema
-   changes, run `npx prisma migrate deploy` against Neon **before** deploying.
-
-Safety built in: secrets live only in Vercel's environment variables (`.env*`
-is gitignored); `DATABASE_URL` is server-only; every deployment is `noindex`
-unless `NEXT_PUBLIC_ALLOW_INDEXING=true`; baseline security headers are set in
-`next.config.ts`; a missing/invalid `DATABASE_URL` fails the build with a clear
-message instead of deploying a broken site.
-
-Before going live commercially: Vercel's **Hobby plan is for non-commercial use
-only**, so a business site needs the **Pro** plan. Replace every `[CLIENT …]`
-placeholder and all sample content, and add a privacy policy and terms page
-(written/approved by the client), since the site collects enquiries.
+4. Nightly job (Supabase → Database → Cron): `select public.refresh_all_starting_prices();` so expired price seasons drop out of "from" prices.
+5. Create the first Super Admin: create the user in Supabase Auth (Authentication → Users), then in the SQL editor insert their `profiles` row and a `user_roles` row with role `super_admin`. After that, invite everyone else from **Admin → Team & roles**.
 
 ## Project structure
 
 ```
-prisma/
-  schema.prisma          Data model
-  migrations/            SQL migrations (incl. CHECK constraints)
-  seed.ts                Development sample data
-prisma.config.ts         Prisma 7 config (URLs from env, seed command)
-scripts/verify-data.ts   Data-flow verification
+supabase/
+  migrations/            100 schema · 200 RLS · 300 triggers · 400 reference data
+  seed.sql               development sample content (never production)
+  local/supabase-shim.sql  local stand-in for Supabase roles/auth/storage
+scripts/
+  local-db.mjs           local Postgres server
+  test-db.mjs            RLS / trigger / constraint tests
+  verify-data.ts         repository + write-path verification
 src/
-  app/                   Routes. (site)/ = public website shell
-  components/            ui/, cards/, media/, motion/, sections/, layout/, home/
-  config/site.ts         Business identity and navigation
-  content/               Homepage placeholder data (replaced by queries in Phase 4)
-  lib/                   db (Prisma singleton), env, routes, seo/, format, labels
+  app/(site)/            public pages (route list below)
+  components/            ui/, cards/, sections/, templates/, package/, forms/, blog/...
+  config/site.ts         brand + navigation (contact details move to site_settings)
+  lib/                   db (pg pool), routes, media URLs, rich text, seo/
   server/
-    validation/          Zod schemas for every write (content, leads, enquiries)
-    repositories/        Prisma queries -> typed view models (framework-agnostic)
-    queries/             Cached ("use cache" + cacheTag) functions pages call
-    services/            Write paths: createLead, createEnquiry
-  types/content.ts       View models shared by UI and data layer
-  generated/prisma/      Generated Prisma client (gitignored)
+    validation/          Zod schemas for every write
+    repositories/        SQL -> view models (src/types/content.ts)
+    queries/             cached ("use cache" + cacheTag) functions pages call
+    services/            write paths: leads + attribution
+  proxy.ts               CMS redirects + real 404s for unknown slugs
 ```
 
 ### Data access rules
 
-- Components never import Prisma. Pages call `@/server/queries`; those wrap `@/server/repositories`.
-- Repositories return plain serialisable objects (numbers, ISO strings), never `Decimal` or Prisma types.
-- Everything under `src/server` and `src/lib/db.ts` imports `server-only`, so it cannot reach a client bundle.
-- Public reads only return `PUBLISHED` content. Sample rows (`isSample`) show in development and are hidden in production unless `SHOW_SAMPLE_CONTENT=true`.
-- Writes take `unknown` input and validate with Zod before touching the database.
+- Components never import `@/lib/db`. Pages call `@/server/queries`, which wrap `@/server/repositories`.
+- SQL values always go through `$n` parameters. Only constant fragments from code (`live("p")`, `mediaJson(...)`) are interpolated.
+- One query per page: nested data (itinerary, prices, gallery, FAQs) comes back as JSON from Postgres.
+- Public reads use `live(alias)`: `published`, `published_at <= now()` (so future dates = scheduled), not soft-deleted, sample rule.
+- The server connects with a privileged role, so it bypasses RLS and applies these rules itself. RLS is the wall for everything reachable with the public anon key (browser, Storage, future customer app).
+- Writes run in `transaction(work, actorId)`; the actor id feeds `auth.uid()` so triggers fill `created_by`/`updated_by` and the audit log.
 
-## Content model (summary)
+## Database architecture (summary)
 
 ```
-Region (self-tree) ─< Country ─< Destination (self-tree, related) ─< TourPackage
-                                                   TourPackage >─< TourCategory
-TourPackage ─< ItineraryDay (unique dayNumber) ─> Hotel / Destination / Media
-TourPackage ─< PackageHotel >─ Hotel ─> Country
-TourPackage ─< PackageHighlight / PackageInclusion / PackageExclusion / PackageImage
-Country ─ VisaCountry ─< VisaType ─< VisaRequirement
-                         VisaType ─< VisaEligibility >─ Country (passport)
-Destination / Country ─< TravelGuide (self many-to-many "related")
-FAQ ─> at most one of: package, destination, country, guide, visa country, visa type
-Review ─> package / destination        Lead ─> package        Enquiry (standalone)
-Region, Country, Destination, TourCategory, TourPackage, VisaCountry, TravelGuide ─ SeoMeta (1:1)
-Media is referenced everywhere an image appears (alt text required)
+regions ─< countries ─< destinations (tree) ─< packages (primary) >─< destinations (package_destinations)
+packages ─< itinerary_days ─< itinerary_day_items · package_prices ─< package_departures
+packages ─< package_inclusions (included/excluded, typed) · package_highlights · package_hotels >─ hotels
+packages >─< package_categories · packages ─> policies (terms / cancellation / payment, reusable)
+countries ─< visa_guides (per passport) ─< visa_types ─< visa_documents / visa_process_steps / visa_fees
+blog_posts ─> authors, blog_categories · blog_posts >─< tags, destinations, packages
+faqs ─< faq_links ─> exactly one of: package | destination | country | visa guide | post | page | category
+contacts ─< leads ─< lead_touchpoints (first/last, UTMs, gclid, fbclid) ─> marketing_channels · lead_activities
+media_assets (bucket + path, never URLs) · seo_meta (1:1) · redirects · site_settings · audit_log · content_revisions
 ```
 
-## Architecture decisions
+- **Publishing:** `draft | published | unpublished | archived` + `published_at` (future = scheduled) + `deleted_at` (trash).
+- **Slugs** are globally unique per type (partial unique index ignoring deleted rows). Changing a published slug creates a 301 automatically and collapses redirect chains.
+- **Derived fields** kept by triggers: `scope` (India = domestic), `starting_price` (cheapest current price), primary destination link.
+- **Roles:** `super_admin`, `admin`, `editor`, `marketing`, `sales`. Permissions are rows in `role_permissions`, checked by `has_permission(resource, action)`; publish/delete are enforced by trigger. Sales see only their own and unassigned leads.
+- **Personal data** (contacts, leads) is never publicly readable; the audit log stores changed column names only (DPDP-friendly).
 
-1. **Cache Components on.** Public content is cached with `"use cache"` + `cacheTag()` in `src/server/queries`; admin edits will call `revalidateTag()` so changes go live without a rebuild.
-2. **Trailing slashes** (`trailingSlash: true`); the non-slash form 308-redirects, one canonical URL per page.
-3. **`(site)` route group** so `/admin` can have its own shell.
-4. **One `User` model with a `role`** (ADMIN / EDITOR). Server-side `Session` table; the cookie only carries an opaque token. (Auth itself: Phase 11.)
-5. **Region is a table, not an enum**, with an optional parent (Southeast Asia → Asia).
-6. **Destination covers country, region, city and place** (`type`), with a parent (Hanoi → Vietnam). `scope` (DOMESTIC / INTERNATIONAL) drives the URL. Domestic/International is therefore *not* a TourCategory, so a package can't be filed under the wrong one; categories are travel styles.
-7. **One FAQ table** with optional owner columns and a CHECK constraint allowing at most one owner (no owner = site-wide/homepage FAQ). Visa FAQs are FAQ rows owned by a VisaType or VisaCountry, so FAQ schema/markup logic is written once.
-8. **Reusable `SeoMeta` (one-to-one)** instead of SEO columns on every table. Absent = derive from content.
-9. **Visa:** `VisaRequirement` = documents/conditions per visa type; `VisaEligibility` = what a given passport needs (powers the Visa Finder). The visa URL uses the country slug (`/visa/vietnam/`), no duplicate slug. `lastVerifiedAt` and `sourceUrl` exist because rules change.
-10. **Lead vs Enquiry.** A Lead is a structured trip request in the sales pipeline (with UTM source/medium/campaign and an optional package). An Enquiry is a general contact message, kept out of the pipeline.
-11. **Integrity in two layers:** Zod in the app, CHECK constraints in the database (ratings 1–5, star ratings, durations, positive prices, day numbers, single-owner FAQs, slug format).
-12. **`isSample` flag** on editorial tables; seed data is always sample. No reviews are seeded, prices are null, visa content is explicit placeholders.
-13. **Indexing is off by default** until `NEXT_PUBLIC_ALLOW_INDEXING=true` on the live domain.
-14. **Self-hosted fonts**; accessibility baseline (skip link, native `<dialog>` menu, focus rings, reduced motion, landmarks).
+## Public pages
 
-## Public pages (Phase 4)
-
-| Route | Source | Notes |
-| --- | --- | --- |
-| `/` | `app/(site)/page.tsx` | All travel content from the database; editorial copy in `src/content/home.ts` |
-| `/tours/` | listing template | All tours, with filters |
-| `/international-tours/`, `/domestic-tours/` | listing template | Scope listings, with filters |
-| `/{style}-tours/` (e.g. `/family-tours/`) | `app/(site)/tour-styles/[category]` | Proxy rewrites the public URL to the internal route |
-| `/{scope}-tours/{destination}/` | `components/templates/destination-page.tsx` | Shared by both scopes |
-| `/{scope}-tours/{destination}/{package}/` | `components/templates/package-page.tsx` | Package must belong to the destination |
-| `/destinations/` | `app/(site)/destinations` | Top-level destinations by scope |
-| `/search/?q=` | `app/(site)/search` | Countries, destinations, tours (noindex) |
-
-**Status codes.** With Cache Components + Partial Prefetching, a URL whose params weren't prerendered gets the route's App Shell immediately (HTTP 200), so `notFound()` in a page can only give a "soft" 404. `src/proxy.ts` therefore checks destination/package/style slugs before rendering (indexed lookup, memoised for 60 s per instance): unknown → real **404**, wrong scope → **308** to the canonical URL, `/tour-styles/…` → **308** to `/{style}-tours/`. Pages keep their own `notFound()` as a second line of defence.
-
-**Filters** live in the URL (`?destination=vietnam&duration=week&category=family&maxPrice=…`): shareable, crawlable, no client JavaScript. Values are validated on the server; invalid ones are ignored. The results stream inside `<Suspense>`; the rest of each listing page is static.
-
-**Caching.** Every query in `src/server/queries` is `"use cache"` + `cacheLife("hours")` + `cacheTag(...)`. Pages are prerendered at build (all published destinations/packages/styles via `generateStaticParams`); new slugs render on first visit and are then cached. Edits appear within about an hour today; the admin (Phase 11) will call `revalidateTag()` on save for immediate updates. Search results use `cacheLife("minutes")`.
-
-**Structured data** (`src/lib/seo/schema.ts`): BreadcrumbList on every page with breadcrumbs; Organization on the homepage; TouristDestination, TouristTrip, Product/Offer (only with a real price), AggregateRating (only with real published reviews) and FAQPage (only with real FAQs). Sample content never gets entity schema.
-
-**Database resilience.** One Prisma client per process (shared by the Proxy and the app). Reads are retried once if the connection was closed underneath them (common with poolers); writes are never retried. Streamed sections show a friendly error state and log the real error server-side.
-
-## Visa system (Phase 5)
-
-| Route | What it is |
+| Route | Notes |
 | --- | --- |
-| `/visa/` | Service page: hero, embedded Visa Finder, popular visa guides, how it works, common documents (counted from data), visa FAQs, visa guides, CTA |
-| `/visa/finder/` | Passport → destination → purpose → result. Answers live in the URL (`?passport=IN&destination=vietnam&purpose=TOURISM`); the result is rendered on the server from the database. Canonical: `/visa/finder/` |
-| `/visa/{country}/` | Guide for the default passport: answer-first quick answers, verification notice, visa types, documents, numbered steps, FAQs, related tours/guides/destinations |
-| `/visa/{country}/{type}/` | Only for visa types with enough content to stand alone (≥2 types in the guide, ≥3 documents, ≥3 steps, a description or eligibility). Thinner types stay on the country page; their URLs 404 |
+| `/` | Homepage, all travel content from the database |
+| `/tours/`, `/international-tours/`, `/domestic-tours/` | Listings with URL filters (destination, duration, style, price) |
+| `/tours/{category}/` | Travel style (Family, Honeymoon, Gen Z...). Empty styles are noindex |
+| `/destinations/`, `/destinations/{slug}/` | Destination pages (best months, tips, places, visa, tours, blog, FAQs) |
+| `/packages/{slug}/` | Package pages (itinerary, prices by season, departures, hotels, inclusions, policies, FAQs) |
+| `/visa/`, `/visa/{guide}/`, `/visa/{guide}/{type}/`, `/visa/finder/` | Visa system (fees and processing times only for verified guides) |
+| `/blog/`, `/blog/{slug}/`, `/blog/category/{slug}/` | Blog with keyset pagination (`?before=`) |
+| `/plan-your-trip/`, `/contact/`, `/thank-you/` | Enquiry flow (server action → `createLead`) |
+| `/faq/`, `/search/`, `/sitemap.xml`, `/robots.txt` | |
+| `/{slug}/` | CMS pages built from blocks (About, Privacy Policy, Terms, landing pages) |
 
-**Data model.** A `VisaCountry` (guide) is unique per destination **and passport** (`passportCountryId`), because requirements differ by passport. `visaConfig.defaultPassportIso` (`src/config/site.ts`, "IN") decides which guide `/visa/{country}/` shows; more passports are a data change. `VisaType.kind` (e-Visa, visa on arrival…), ordered `VisaProcessStep` rows, `VisaRequirement` documents and FAQs (owned by the guide or a type; `placement: VISA` for `/visa/`).
+All URLs come from `src/lib/routes.ts`, which must stay in sync with `public.content_path()` in the triggers migration.
 
-**Honesty rules (enforced in `src/server/repositories/visa.ts`).** A guide is *verified* only with `lastVerifiedAt` set and `isSample = false`. Fees and processing times are returned only for verified guides; otherwise pages show "Visa fees may vary. Contact our visa assistance team…". `kind` is never guessed. Unverified guides display a notice before any content. `Service` and `FAQPage` schema are never emitted for sample guides.
+## Admin CMS (`/admin/`)
 
-## URL scheme
-
-| Content | URL |
+| Area | What staff can do |
 | --- | --- |
-| Destination | `/international-tours/vietnam/`, `/domestic-tours/kerala/` |
-| Package | `/international-tours/vietnam/vietnam-7-days-6-nights/` |
-| Tour style | `/family-tours/` |
-| Visa | `/visa/vietnam/`, `/visa/japan/business-visa/`, `/visa/finder/` |
-| Journal article | `/travel-journal/best-time-to-visit-vietnam/` |
-| Journal category | `/travel-journal/category/visa-guides/` |
+| Dashboard | New leads today / 7 / 30 days, leads by source, pipeline, own follow-ups, content counts |
+| Leads | Inbox with filters (stage, owner, source, type, search incl. `YJ-000123`), lead page with contact links (call / WhatsApp), trip details, first/last-touch attribution, stage / owner / priority / follow-up, timeline notes, CSV export |
+| Travel | Packages (itinerary with activities, prices by season, group departures, hotels, inclusions, gallery, FAQs, policies), destinations, travel styles, hotels, terms & policies |
+| Content | Blog posts, categories, authors, tags, pages (block builder: text, image + text, numbers, CTA, FAQs, tours, destinations, testimonials), FAQs (write once, reuse), testimonials, media library |
+| Visa | Guides with visa types, documents, steps and fees; fees/processing times show publicly only once "last verified" is set |
+| Marketing / Settings | Redirects, website settings (contact, WhatsApp, logo, default SEO), social links, countries, lead stages, team & roles |
 
-All built by `src/lib/routes.ts`; database ids never appear in URLs.
+Every editor has draft / publish / unpublish / archive, scheduling (future publish date), trash with restore, a SEO panel with a Google preview and focus-keyword checks, and "View on website". Saving refreshes the affected public pages immediately (`updateTag`).
+
+**How it's built:** each content type is a declaration in `src/server/admin/resources.ts`; one generic engine (`crud.ts`) builds validation and parameterised SQL from it, so a new content type needs no new screens. Auth is Supabase Auth (`/admin/login/`); roles and permissions come from `user_roles` / `role_permissions`, checked on every page and action and again by database triggers.
+
+**Local development without Supabase:** `/admin/login/` offers a "local development sign-in" (create a local Super Admin, then pick any local staff account). It is enabled only when `NODE_ENV=development`, Supabase isn't configured and the database is on localhost. Uploads then go to `public/uploads/` (gitignored); with Supabase they go to the `media` Storage bucket.
+
+## Leads and attribution
+
+1. `AttributionCapture` (in the site layout) stores the first and the latest touch in the browser: UTMs, `gclid`/`gbraid`/`wbraid`, `fbclid`, Meta `_fbc`/`_fbp`, landing path and referrer.
+2. The enquiry form sends them as JSON; `createLead` validates everything, deduplicates the contact by phone (E.164), ignores double submits, and classifies each touch into a channel on the server (`services/attribution.ts`).
+3. The thank-you page pushes `generate_lead` (with the lead reference) to GTM, where Google Ads and Meta conversion tags are configured.
 
 ## Content placeholders
 
-`src/config/site.ts` uses `[CLIENT PHONE]`, `[CLIENT WHATSAPP]`, `[CLIENT EMAIL]`, `[CLIENT ADDRESS]` and social URL placeholders. They render as plain text (never as links) until replaced.
+`src/config/site.ts` uses `[CLIENT PHONE]`-style placeholders until `site_settings` is filled from the admin. They render as plain text, never as links. Sample content is hidden in production unless `SHOW_SAMPLE_CONTENT=true`.
 
 ## Roadmap
 
-1. ~~Project foundation~~ · 2. ~~Design system~~ · 3. ~~Database + content architecture~~ · 4. ~~Dynamic homepage, destinations, packages, categories~~ · ~~Visa system + Visa Finder~~ · 5. Destination pages (content depth) · 6. Package details (gallery, enquiry) · 7. Itinerary system · 8. Visa system · 9. Travel Journal · 10. Plan Your Trip + leads · 11. Admin dashboard · 12. SEO/AEO/GEO · 13. Analytics · 14. Testing · 15. Deployment
+1. ~~Foundation, design system~~ · 2. ~~Database architecture on Supabase (schema, RLS, triggers, reference data)~~ · 3. ~~Database-driven public site, flat URLs, redirects, sitemap~~ · 4. ~~Enquiry flow + attribution, blog~~ · 5. ~~Admin CMS~~ · ~~About / Privacy / Terms structure~~ · 6. Content entry + premium design pass · 7. Go-live (Supabase project, real content, GTM) · Later: bookings, payments, customer accounts, WhatsApp/CRM integrations (schema already allows them).

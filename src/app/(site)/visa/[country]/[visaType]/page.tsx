@@ -95,21 +95,21 @@ export default async function VisaTypePage({ params }: PageProps<"/visa/[country
       <Section tone="sand" aria-labelledby="more-title" spacing="compact">
         <Container>
           <SectionHeading id="more-title" eyebrow="Also useful" title={`More about the ${country.name} visa`} />
-          <ul className="mt-8 flex flex-wrap gap-x-8 gap-y-3 text-body">
+          <ul className="mt-8 flex flex-wrap gap-x-8 gap-y-0 text-body">
             <li>
-              <Link href={country.href} className="underline underline-offset-4 hover:text-accent-strong">
+              <Link href={country.href} className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-accent-strong">
                 {country.name} visa guide
               </Link>
             </li>
             {otherTypes.map((t) => (
               <li key={t.slug}>
-                <Link href={t.href} className="underline underline-offset-4 hover:text-accent-strong">
+                <Link href={t.href} className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-accent-strong">
                   {t.name}
                 </Link>
               </li>
             ))}
             <li>
-              <Link href={routes.visaFinder()} className="underline underline-offset-4 hover:text-accent-strong">
+              <Link href={routes.visaFinder()} className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-accent-strong">
                 Visa Finder
               </Link>
             </li>

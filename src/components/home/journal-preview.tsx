@@ -1,12 +1,11 @@
 import Link from "next/link";
-import type { ArticleSummary, GuideCategory } from "@/types/content";
+import type { ArticleSummary, BlogCategoryRef } from "@/types/content";
 import { Section } from "@/components/ui/section";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { ButtonLink, ArrowIcon } from "@/components/ui/button";
 import { ArticleCard } from "@/components/cards/article-card";
 import { Reveal } from "@/components/motion/reveal";
-import { guideCategoryNavLabel } from "@/lib/labels";
 import { routes } from "@/lib/routes";
 
 /** Lead story + a short list, with category links into the Journal. */
@@ -14,11 +13,11 @@ export function JournalPreview({
   articles,
   categories = [],
   id = "journal-title",
-  eyebrow = "The Travel Journal",
+  eyebrow = "From the blog",
   title = "Helpful answers for better trips.",
 }: {
   articles: ArticleSummary[];
-  categories?: GuideCategory[];
+  categories?: BlogCategoryRef[];
   id?: string;
   eyebrow?: string;
   title?: string;
@@ -35,22 +34,22 @@ export function JournalPreview({
           title={title}
           action={
             <ButtonLink href={routes.journal()} variant="ghost">
-              Visit the Journal
+              Read the blog
               <ArrowIcon />
             </ButtonLink>
           }
         />
 
         {categories.length > 0 && (
-        <nav aria-label="Journal topics" className="mt-8">
+        <nav aria-label="Blog topics" className="mt-8">
           <ul className="flex flex-wrap gap-2">
             {categories.map((category) => (
-              <li key={category}>
+              <li key={category.slug}>
                 <Link
-                  href={routes.journalCategory(category)}
+                  href={category.href}
                   className="inline-flex min-h-10 items-center rounded-full border border-line-strong px-4 text-body-sm transition-colors hover:border-ink"
                 >
-                  {guideCategoryNavLabel[category]}
+                  {category.name}
                 </Link>
               </li>
             ))}

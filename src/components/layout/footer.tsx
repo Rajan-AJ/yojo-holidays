@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { footerNav, isPlaceholder, legalNav, siteConfig } from "@/config/site";
+import { getSiteSettings } from "@/server/queries";
 import { Container } from "@/components/ui/container";
 import { cn } from "@/lib/cn";
 import { Wordmark } from "./wordmark";
@@ -10,7 +11,7 @@ function MaybeLink({ value, href, external }: { value: string; href?: string; ex
   return (
     <a
       href={href}
-      className="transition-colors hover:text-canvas"
+      className="inline-flex min-h-11 items-center transition-colors hover:text-canvas lg:min-h-0"
       {...(external && { target: "_blank", rel: "noopener noreferrer" })}
     >
       {value}
@@ -24,7 +25,7 @@ const socialGlyphs: Record<string, string> = { Instagram: "IG", Facebook: "FB", 
 function SocialLink({ item }: { item: { label: string; href: string } }) {
   const glyph = socialGlyphs[item.label] ?? item.label.charAt(0).toUpperCase();
   const className =
-    "flex size-9 items-center justify-center rounded-full border border-line-inverse text-[0.65rem] font-semibold tracking-wide text-canvas/70 transition-colors";
+    "flex size-9 items-center justify-center rounded-full border border-line-inverse text-xs font-semibold tracking-wide text-canvas/70 transition-colors";
 
   if (isPlaceholder(item.href)) {
     return (
@@ -95,8 +96,20 @@ function PinIcon({ className }: { className?: string }) {
   );
 }
 
-export function Footer() {
-  const { contact, social } = siteConfig;
+const platformLabel: Record<string, string> = { instagram: "Instagram", facebook: "Facebook", youtube: "YouTube", linkedin: "LinkedIn", x: "X", pinterest: "Pinterest" };
+
+/** Contact details and social links come from the CMS (Website settings); config placeholders until filled in. */
+export async function Footer() {
+  const settings = await getSiteSettings();
+  const a = settings?.address;
+  const contact = {
+    phone: settings?.phone ?? siteConfig.contact.phone,
+    email: settings?.email ?? siteConfig.contact.email,
+    address: a ? [a.line1, a.line2, a.city, a.state, a.postalCode].filter(Boolean).join(", ") : siteConfig.contact.address,
+  };
+  const social = settings?.social.length
+    ? settings.social.map((s) => ({ label: platformLabel[s.platform] ?? s.platform, href: s.url }))
+    : siteConfig.social;
 
   return (
     <footer className="on-dark bg-ink text-canvas">
@@ -139,10 +152,14 @@ export function Footer() {
             {footerNav.map((group) => (
               <div key={group.heading}>
                 <h2 className="eyebrow text-canvas/50">{group.heading}</h2>
-                <ul className="mt-4 space-y-2.5 text-body-sm">
+                {/* Touch screens get 44px rows; desktop keeps the tighter list. */}
+                <ul className="mt-2 text-body-sm lg:mt-4 lg:space-y-2.5">
                   {group.links.map((link) => (
                     <li key={link.href + link.label}>
-                      <Link href={link.href} className="text-canvas/80 transition-colors hover:text-accent">
+                      <Link
+                        href={link.href}
+                        className="inline-flex min-h-11 items-center text-canvas/80 transition-colors hover:text-accent lg:min-h-0"
+                      >
                         {link.label}
                       </Link>
                     </li>
@@ -158,10 +175,13 @@ export function Footer() {
           <p>
             © <CopyrightYear /> {siteConfig.name}. All rights reserved.
           </p>
-          <ul className="flex flex-wrap gap-x-6 gap-y-2">
+          <ul className="flex flex-wrap gap-x-6">
             {legalNav.map((link) => (
               <li key={link.href}>
-                <Link href={link.href} className="transition-colors hover:text-canvas">
+                <Link
+                  href={link.href}
+                  className="inline-flex min-h-11 items-center transition-colors hover:text-canvas lg:min-h-0"
+                >
                   {link.label}
                 </Link>
               </li>

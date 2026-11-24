@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 /**
- * Shared field rules. Every write path (seed, server actions, admin) parses
- * input with these before it reaches Prisma. Database CHECK constraints in the
- * migration enforce the same rules as a last line of defence.
+ * Shared field rules. Every write path (server actions, admin) parses input
+ * with these before it reaches the database. CHECK constraints and domains in
+ * supabase/migrations enforce the same rules as a last line of defence.
  */
 
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -34,7 +34,7 @@ export const currency = z
   .toUpperCase()
   .regex(/^[A-Z]{3}$/, "Use a 3-letter currency code, e.g. INR");
 
-/** Positive money amount with at most 2 decimals (fits Decimal(12,2)). */
+/** Positive money amount with at most 2 decimals (fits numeric(12,2)). */
 export const price = z
   .number()
   .positive()
@@ -71,4 +71,31 @@ export const sitePath = z
   .max(500)
   .regex(/^\/[^\s]*$/, "Must be a site path starting with /");
 
-export const publishStatus = z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]);
+export const contentStatus = z.enum(["draft", "published", "unpublished", "archived"]);
+
+/**
+ * Phone number -> E.164 ("+919876543210"). Indian numbers may be typed without
+ * the country code ("98765 43210", "098765 43210"); anything else needs a "+".
+ */
+export function toE164(raw: string): string | null {
+  const digits = raw.replace(/[^\d+]/g, "");
+  if (/^\+[1-9]\d{7,14}$/.test(digits)) return digits;
+  const bare = digits.replace(/^\+/, "");
+  if (/^[6-9]\d{9}$/.test(bare)) return `+91${bare}`;
+  if (/^0[6-9]\d{9}$/.test(bare)) return `+91${bare.slice(1)}`;
+  if (/^91[6-9]\d{9}$/.test(bare)) return `+${bare}`;
+  return null;
+}
+
+export const phoneE164 = z
+  .string()
+  .trim()
+  .max(24)
+  .transform((v, ctx) => {
+    const e164 = toE164(v);
+    if (!e164) {
+      ctx.addIssue({ code: "custom", message: "Enter a valid mobile number, e.g. 98765 43210" });
+      return z.NEVER;
+    }
+    return e164;
+  });

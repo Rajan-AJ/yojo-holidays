@@ -56,7 +56,7 @@ export function Experiences({ categories }: { categories: TravelCategory[] }) {
               <div className="absolute inset-0 flex flex-col justify-between p-5">
                 <GradientIcon name={iconFor(category.id)} index={index} size="sm" />
                 <div>
-                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-white/70">Travel style</p>
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wider text-white/70">Travel style</p>
                   <h3 className="mb-0.5 font-display text-[18px] font-bold leading-tight text-white">
                     <Link href={category.href} className="after:absolute after:inset-0">
                       {category.name}

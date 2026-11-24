@@ -1,59 +1,64 @@
-import type { GuideCategory, TourScope } from "@/types/content";
+import type { TourScope } from "@/types/content";
 
 /**
  * Single source of truth for public URLs (all with trailing slashes, see
- * next.config.ts). Components never build paths by hand, so entity pages stay
- * consistently linked: destination -> tours -> visa -> guides.
+ * next.config.ts). Components never build paths by hand.
+ *
+ * KEEP IN SYNC with public.content_path() in
+ * supabase/migrations/20261124000300_triggers.sql, which creates automatic 301
+ * redirects when a published slug changes.
+ *
+ * Slugs are globally unique per content type, so URLs are flat and stable:
+ * moving a package to another destination never changes its URL.
  */
 const scopeSegment: Record<TourScope, string> = {
   DOMESTIC: "domestic-tours",
   INTERNATIONAL: "international-tours",
 };
 
-export const guideCategorySlug: Record<GuideCategory, string> = {
-  DESTINATION_GUIDE: "destination-guides",
-  VISA_GUIDE: "visa-guides",
-  TRAVEL_TIPS: "travel-tips",
-  THINGS_TO_DO: "things-to-do",
-  BEST_TIME_TO_VISIT: "best-time-to-visit",
-  TRAVEL_COST_GUIDE: "travel-costs",
-  TRAVEL_FAQ: "travel-faqs",
+const withQuery = (path: string, params?: Record<string, string | undefined>) => {
+  const query = new URLSearchParams(
+    Object.entries(params ?? {}).filter((entry): entry is [string, string] => Boolean(entry[1])),
+  ).toString();
+  return query ? `${path}?${query}` : path;
 };
-
-/** Travel-style pages live at the top level: /family-tours/, /honeymoon-tours/. */
-export const CATEGORY_SUFFIX = "-tours";
 
 export const routes = {
   home: () => "/",
+
+  // Tours
   tours: () => "/tours/",
-  tourCategory: (slug: string) => `/${slug}${CATEGORY_SUFFIX}/`,
   scope: (scope: TourScope) => `/${scopeSegment[scope]}/`,
+  tourCategory: (slug: string) => `/tours/${slug}/`,
+  tour: (slug: string) => `/packages/${slug}/`,
+
+  // Destinations
   destinations: () => "/destinations/",
-  destination: (scope: TourScope, slug: string) => `/${scopeSegment[scope]}/${slug}/`,
-  tour: (scope: TourScope, destinationSlug: string, slug: string) =>
-    `/${scopeSegment[scope]}/${destinationSlug}/${slug}/`,
+  destination: (slug: string) => `/destinations/${slug}/`,
+
+  // Visa
   visa: () => "/visa/",
   visaCountry: (slug: string) => `/visa/${slug}/`,
-  visaType: (countrySlug: string, typeSlug: string) => `/visa/${countrySlug}/${typeSlug}/`,
+  visaType: (guideSlug: string, typeSlug: string) => `/visa/${guideSlug}/${typeSlug}/`,
   /** Visa Finder; optional answers pre-fill it (or show the result when complete). */
-  visaFinder: (answers?: { passport?: string; destination?: string; purpose?: string }) => {
-    const query = new URLSearchParams(
-      Object.entries(answers ?? {}).filter((entry): entry is [string, string] => Boolean(entry[1])),
-    ).toString();
-    return query ? `/visa/finder/?${query}` : "/visa/finder/";
-  },
-  journal: () => "/travel-journal/",
-  journalCategory: (category: GuideCategory) => `/travel-journal/category/${guideCategorySlug[category]}/`,
-  article: (slug: string) => `/travel-journal/${slug}/`,
+  visaFinder: (answers?: { passport?: string; destination?: string; purpose?: string }) =>
+    withQuery("/visa/finder/", answers),
+
+  // Blog
+  journal: () => "/blog/",
+  blogCategory: (slug: string) => `/blog/category/${slug}/`,
+  article: (slug: string) => `/blog/${slug}/`,
+  author: (slug: string) => `/authors/${slug}/`,
+
+  // Company
   about: () => "/about/",
   contact: () => "/contact/",
   faq: () => "/faq/",
+  privacy: () => "/privacy-policy/",
+  terms: () => "/terms/",
   search: (q?: string) => (q ? `/search/?q=${encodeURIComponent(q)}` : "/search/"),
-  /** Optional context so the trip form can be pre-filled (Phase 10). */
-  planTrip: (context?: { destination?: string; package?: string; visa?: string }) => {
-    const query = new URLSearchParams(
-      Object.entries(context ?? {}).filter((entry): entry is [string, string] => Boolean(entry[1])),
-    ).toString();
-    return query ? `/plan-your-trip/?${query}` : "/plan-your-trip/";
-  },
+  /** Optional context so the enquiry form is pre-filled. */
+  planTrip: (context?: { destination?: string; package?: string; visa?: string }) =>
+    withQuery("/plan-your-trip/", context),
+  thankYou: (ref?: string) => withQuery("/thank-you/", { ref }),
 } as const;
