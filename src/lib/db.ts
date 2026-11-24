@@ -1,65 +1,86 @@
 import "server-only";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/generated/prisma/client";
+import { Pool, types, type PoolClient, type QueryResultRow } from "pg";
 import { serverEnv } from "@/lib/env";
 
 /**
- * One Prisma client (one connection pool) per server process. It is kept on
- * globalThis because the same process loads this module more than once: the
- * Proxy (src/proxy.ts) and the app are bundled separately, and in development
- * hot reload re-evaluates modules. Without sharing, each copy would open its
- * own pool and multiply connections.
+ * One Postgres pool per server process (kept on globalThis: the Proxy and the
+ * app are bundled separately, and dev hot reload re-evaluates modules).
+ *
+ * The server connects with a privileged role (Supabase: the pooler connection
+ * string; local: scripts/local-db.mjs), so RLS does not apply to these queries.
+ * Repositories therefore apply the public visibility rules themselves (see
+ * repositories/shared.ts). Never expose this connection to the browser.
+ *
+ * All queries are parameterised ($1, $2...). SQL fragments interpolated into
+ * query text must be constants defined in code, never user input.
  */
 
-/** Read operations: safe to repeat if the connection dropped mid-flight. */
-const READ_OPERATIONS = new Set([
-  "findUnique",
-  "findUniqueOrThrow",
-  "findFirst",
-  "findFirstOrThrow",
-  "findMany",
-  "count",
-  "aggregate",
-  "groupBy",
-]);
+// numeric / int8 -> number (money fits comfortably; ids are uuids), date -> 'YYYY-MM-DD'
+types.setTypeParser(types.builtins.NUMERIC, (v) => Number(v));
+types.setTypeParser(types.builtins.INT8, (v) => Number(v));
+types.setTypeParser(types.builtins.DATE, (v) => v);
+
+function createPool() {
+  const pool = new Pool({
+    connectionString: serverEnv.DATABASE_URL,
+    max: serverEnv.DATABASE_POOL_MAX,
+    idleTimeoutMillis: 30_000,
+    // Supabase's pooler (transaction mode) doesn't support prepared statements
+    // across transactions; pg only prepares named statements, which we never use.
+  });
+  pool.on("error", (error) => console.error("[db] idle client error", error.message));
+  return pool;
+}
+
+const globalForDb = globalThis as unknown as { pgPool?: Pool };
+export const pool = globalForDb.pgPool ?? createPool();
+globalForDb.pgPool = pool;
+
+/** Connection dropped underneath us (common with poolers after idle time). */
+function isClosedConnection(error: unknown) {
+  const e = error as { code?: string; message?: string };
+  return (
+    e?.code === "57P01" ||
+    e?.code === "08006" ||
+    e?.code === "ECONNRESET" ||
+    /Connection terminated|connection closed/i.test(e?.message ?? "")
+  );
+}
+
+/** Read query. Retried once if the connection was closed mid-flight. */
+export async function query<T extends QueryResultRow>(text: string, params: unknown[] = []): Promise<T[]> {
+  try {
+    return (await pool.query<T>(text, params)).rows;
+  } catch (error) {
+    if (!isClosedConnection(error)) throw error;
+    return (await pool.query<T>(text, params)).rows;
+  }
+}
+
+export async function queryOne<T extends QueryResultRow>(text: string, params: unknown[] = []): Promise<T | null> {
+  return (await query<T>(text, params))[0] ?? null;
+}
 
 /**
- * True when Postgres (or a pooler in front of it) closed the connection.
- * Pools can hand out such dead connections after idle periods; a fresh one works.
+ * Writes run in a transaction and are NEVER retried (a dropped write may have
+ * applied). `actorId` (a profile id) is recorded by the audit triggers.
  */
-function isClosedConnection(error: unknown) {
-  const e = error as { code?: string; meta?: { driverAdapterError?: { cause?: { kind?: string } } } };
-  return e?.code === "P1017" || e?.meta?.driverAdapterError?.cause?.kind === "ConnectionClosed";
+export async function transaction<T>(work: (client: PoolClient) => Promise<T>, actorId?: string): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    if (actorId) {
+      // auth.uid() reads this, so created_by/updated_by and the audit log name the staff member.
+      await client.query("select set_config('request.jwt.claim.sub', $1, true)", [actorId]);
+    }
+    const result = await work(client);
+    await client.query("commit");
+    client.release();
+    return result;
+  } catch (error) {
+    await client.query("rollback").catch(() => {});
+    // Discard the connection instead of reusing it: after an error its state is uncertain.
+    client.release(error instanceof Error ? error : true);
+    throw error;
+  }
 }
-
-function createClient() {
-  const adapter = new PrismaPg({
-    connectionString: serverEnv.DATABASE_URL,
-    // Connections per process. `next build` prerenders in several workers at
-    // once, so small databases (local `prisma dev`, entry-level hosted plans)
-    // need a low value; see DATABASE_POOL_MAX in .env.example.
-    max: serverEnv.DATABASE_POOL_MAX,
-  });
-
-  return new PrismaClient({ adapter }).$extends({
-    query: {
-      // Retry a READ once when its connection was closed underneath it.
-      // Writes are never retried: a dropped write may already have applied.
-      async $allOperations({ operation, args, query }) {
-        try {
-          return await query(args);
-        } catch (error) {
-          if (!READ_OPERATIONS.has(operation) || !isClosedConnection(error)) throw error;
-          return query(args);
-        }
-      },
-    },
-  });
-}
-
-type Db = ReturnType<typeof createClient>;
-const globalForPrisma = globalThis as unknown as { prisma?: Db };
-
-export const db = globalForPrisma.prisma ?? createClient();
-
-globalForPrisma.prisma = db;

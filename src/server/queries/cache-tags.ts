@@ -1,7 +1,7 @@
 /**
  * Cache tags for public content. Queries tag their results; when content
- * changes (admin save, Phase 11) the server action calls `revalidateTag()`
- * with the matching tag so pages update immediately without a rebuild.
+ * changes, the admin's server action calls `revalidateTag()` with the matching
+ * tag (see src/server/admin/revalidate.ts) so pages update without a rebuild.
  */
 export const tags = {
   destinations: "destinations",
@@ -9,11 +9,15 @@ export const tags = {
   countries: "countries",
   country: (slug: string) => `country:${slug}`,
   packages: "packages",
-  package: (destinationSlug: string, slug: string) => `package:${destinationSlug}/${slug}`,
+  package: (slug: string) => `package:${slug}`,
+  categories: "categories",
   visa: "visa",
   visaCountry: (slug: string) => `visa:${slug}`,
-  guides: "guides",
-  guide: (slug: string) => `guide:${slug}`,
+  blog: "blog",
+  post: (slug: string) => `post:${slug}`,
   faqs: "faqs",
   reviews: "reviews",
+  settings: "settings",
+  pages: "pages",
+  redirects: "redirects",
 } as const;

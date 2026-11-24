@@ -45,7 +45,7 @@ export function Testimonials({ reviews }: { reviews: ReviewView[] }) {
                       {meta && <span className="mt-0.5 block text-[12px] text-gray-400">{meta}</span>}
                     </span>
                   </span>
-                  {review.verified && <span className="text-right text-[11px] text-gray-400">Verified traveller</span>}
+                  {review.verified && <span className="text-right text-xs text-gray-400">Verified traveller</span>}
                 </figcaption>
               </figure>
             </StaggerItem>

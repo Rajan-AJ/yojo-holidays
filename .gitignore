@@ -48,3 +48,9 @@ next-env.d.ts
 
 # claude code (personal)
 .claude/settings.local.json
+
+# local development database (scripts/local-db.mjs)
+/.local-db/
+
+# local admin uploads (dev only; production uses Supabase Storage)
+/public/uploads/

@@ -11,10 +11,15 @@ const serverEnvSchema = z.object({
       error:
         "DATABASE_URL is not set. Add your PostgreSQL connection string to .env.local (local) or to the hosting provider's environment variables (e.g. Vercel → Settings → Environment Variables).",
     })
-    .regex(/^(postgres|postgresql|prisma\+postgres):\/\//, {
+    .regex(/^(postgres|postgresql):\/\//, {
       error: "DATABASE_URL must be a PostgreSQL connection string (postgresql://…).",
     }),
-  SESSION_SECRET: z.string().optional(),
+  /** Supabase project URL, e.g. https://abcd.supabase.co (also exposed to the browser). */
+  NEXT_PUBLIC_SUPABASE_URL: z.url().optional(),
+  /** anon / publishable key. Public by design; RLS protects the data. */
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(20).optional(),
+  /** Server-only. Bypasses RLS: used for Auth admin calls (inviting staff) and Storage uploads. */
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(20).optional(),
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });

@@ -1,13 +1,13 @@
-import { notFound, permanentRedirect } from "next/navigation";
-import type { TourScope } from "@/types/content";
+import { notFound } from "next/navigation";
 import {
   getDestinationBySlug,
   getDestinationFAQs,
   getDestinationGuides,
   getDestinationPackages,
-  getDestinationScope,
   getDestinationSlugs,
 } from "@/server/queries";
+import { monthLabel } from "@/lib/labels";
+import { richTextToPlain } from "@/lib/rich-text";
 import { buildMetadata, truncateDescription } from "@/lib/seo/metadata";
 import { JsonLd } from "@/lib/seo/json-ld";
 import { touristDestinationSchema } from "@/lib/seo/schema";
@@ -31,29 +31,26 @@ import { Prose } from "@/components/content/prose";
 import { Reveal } from "@/components/motion/reveal";
 
 /**
- * Shared by /international-tours/[destination]/ and /domestic-tours/[destination]/.
- *
- * Canonical strategy: a destination has exactly one URL, under its own scope.
- * Requested under the other scope it permanently redirects (308); unknown
- * slugs 404. Both checks run before anything streams, so the status is real.
+ * /destinations/[slug]/ - one URL per destination (slugs are globally unique).
+ * Unknown slugs get a real 404 from src/proxy.ts; notFound() is the fallback.
  */
 
 const SLUG_FALLBACK = "__none__"; // keeps generateStaticParams non-empty (Cache Components rule)
 
-export async function destinationStaticParams(scope: TourScope) {
-  const slugs = await getDestinationSlugs(scope);
-  return (slugs.length > 0 ? slugs : [SLUG_FALLBACK]).map((destination) => ({ destination }));
+export async function destinationStaticParams() {
+  const slugs = await getDestinationSlugs();
+  return (slugs.length > 0 ? slugs : [SLUG_FALLBACK]).map((slug) => ({ slug }));
 }
 
 const MAX_TOURS_SHOWN = 8;
 
-export async function destinationMetadata(scope: TourScope, slug: string) {
+export async function destinationMetadata(slug: string) {
   const d = await getDestinationBySlug(slug);
-  if (!d || d.scope !== scope) return {};
+  if (!d) return {};
   return buildMetadata({
     title: `${d.name} Tour Packages`,
     description:
-      truncateDescription(d.tagline ?? d.description) ??
+      truncateDescription(d.tagline ?? richTextToPlain(d.description)) ??
       `${d.name} tour packages and travel information from ${siteConfig.name}.`,
     path: d.href,
     image: d.image,
@@ -61,14 +58,9 @@ export async function destinationMetadata(scope: TourScope, slug: string) {
   });
 }
 
-export async function DestinationPage({ scope, slug }: { scope: TourScope; slug: string }) {
+export async function DestinationPage({ slug }: { slug: string }) {
   const destination = await getDestinationBySlug(slug);
   if (!destination) notFound();
-  if (destination.scope !== scope) {
-    const actual = await getDestinationScope(slug);
-    if (actual) permanentRedirect(routes.destination(actual, slug));
-    notFound();
-  }
 
   const [tours, guides, faqs] = await Promise.all([
     getDestinationPackages(slug),
@@ -150,10 +142,30 @@ export async function DestinationPage({ scope, slug }: { scope: TourScope; slug:
                         </div>
                       ))}
                   </dl>
-                  {d.bestTimeToVisit && (
+                  {(d.bestTimeToVisit || d.bestMonths.length > 0) && (
                     <div className="mt-8">
                       <h3 className="eyebrow text-accent-strong">Best time to visit</h3>
-                      <p className="mt-3 text-body">{d.bestTimeToVisit}</p>
+                      {d.bestMonths.length > 0 && (
+                        <ol className="mt-4 grid grid-cols-6 gap-1.5" aria-label="Good months to visit">
+                          {monthLabel.map((m, i) => {
+                            const good = d.bestMonths.includes(i + 1);
+                            return (
+                              <li
+                                key={m}
+                                className={
+                                  good
+                                    ? "rounded-md bg-ink py-1.5 text-center text-caption font-semibold text-white"
+                                    : "rounded-md border border-line py-1.5 text-center text-caption text-muted"
+                                }
+                              >
+                                <span aria-hidden="true">{m}</span>
+                                <span className="sr-only">{`${m}: ${good ? "good time to visit" : "off season"}`}</span>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      )}
+                      {d.bestTimeToVisit && <p className="mt-3 text-body">{d.bestTimeToVisit}</p>}
                     </div>
                   )}
                   {d.visa && (
@@ -191,6 +203,27 @@ export async function DestinationPage({ scope, slug }: { scope: TourScope; slug:
         </Section>
       )}
 
+      {d.travelTips.length > 0 && (
+        <Section aria-labelledby="tips-title" spacing="compact">
+          <Container>
+            <SectionHeading id="tips-title" eyebrow="Good to know" title={`${d.name} travel tips`} />
+            <ul className="mt-block grid gap-x-12 gap-y-8 md:grid-cols-2">
+              {d.travelTips.map((tip, i) => (
+                <li key={tip.title} className="flex gap-5 border-t border-line pt-6">
+                  <span className="font-display text-h3 leading-none text-accent-strong" aria-hidden="true">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <div>
+                    <h3 className="text-h4">{tip.title}</h3>
+                    {tip.description && <p className="mt-2 text-body text-muted">{tip.description}</p>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Container>
+        </Section>
+      )}
+
       {d.places.length > 0 && (
         <Section aria-labelledby="places-title">
           <Container size="wide">
@@ -206,7 +239,7 @@ export async function DestinationPage({ scope, slug }: { scope: TourScope; slug:
 
       <JournalPreview
         id="guides-title"
-        eyebrow="Travel Journal"
+        eyebrow="From the blog"
         title={`${d.name} travel guides`}
         articles={guides}
       />

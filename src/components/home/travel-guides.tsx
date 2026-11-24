@@ -3,7 +3,6 @@ import type { ArticleSummary } from "@/types/content";
 import { SampleBadge } from "@/components/ui/badge";
 import { ResponsiveImage } from "@/components/media/responsive-image";
 import { Stagger, StaggerItem } from "@/components/motion/reveal";
-import { guideCategoryLabel } from "@/lib/labels";
 import { formatDate } from "@/lib/format";
 import { routes } from "@/lib/routes";
 import { cn } from "@/lib/cn";
@@ -40,7 +39,7 @@ export function TravelGuides({ articles }: { articles: ArticleSummary[] }) {
                 />
                 <div className="absolute left-3 top-3 flex gap-1.5">
                   {article.isSample && <SampleBadge />}
-                  <span className={imagePillClass}>{guideCategoryLabel[article.category]}</span>
+                  {article.category && <span className={imagePillClass}>{article.category.name}</span>}
                 </div>
               </div>
               <div className="flex flex-1 flex-col p-5">

@@ -2,7 +2,6 @@ import Link from "next/link";
 import type { ArticleSummary } from "@/types/content";
 import { ResponsiveImage, type AspectRatio } from "@/components/media/responsive-image";
 import { SampleBadge } from "@/components/ui/badge";
-import { guideCategoryLabel } from "@/lib/labels";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
@@ -46,7 +45,7 @@ export function ArticleCard({
       </div>
 
       <div className={isRow ? undefined : "mt-5"}>
-        <p className="eyebrow text-accent-strong">{guideCategoryLabel[article.category]}</p>
+        {article.category && <p className="eyebrow text-accent-strong">{article.category.name}</p>}
         <Heading
           className={cn(
             "mt-3 transition-colors group-hover:text-accent-strong",

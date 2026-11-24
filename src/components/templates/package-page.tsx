@@ -1,15 +1,15 @@
 import Link from "next/link";
-import { notFound, permanentRedirect } from "next/navigation";
-import type { TourScope } from "@/types/content";
+import { notFound } from "next/navigation";
 import {
   getDestinationGuides,
   getPackageFAQs,
-  getPackageParams,
   getPackageReviews,
-  getPackageScope,
+  getPackageSlugs,
+  getRatingSummary,
   getRelatedPackages,
   getTourPackageBySlug,
 } from "@/server/queries";
+import { richTextToPlain } from "@/lib/rich-text";
 import { buildMetadata, truncateDescription } from "@/lib/seo/metadata";
 import { JsonLd } from "@/lib/seo/json-ld";
 import { tourSchemas } from "@/lib/seo/schema";
@@ -33,7 +33,10 @@ import { VisaSummaryBlock } from "@/components/content/visa-summary-block";
 import { Prose } from "@/components/content/prose";
 import {
   DayDetails,
+  DeparturesSection,
   HighlightsSection,
+  PoliciesSection,
+  PricingSection,
   ImportantInfoSection,
   InclusionsSection,
   StaysAndMealsSection,
@@ -41,28 +44,25 @@ import {
 } from "@/components/package/package-sections";
 
 /**
- * Shared by /{scope}-tours/[destination]/[package]/.
- *
- * The package is looked up by BOTH slugs, so a package under the wrong
- * destination 404s. Under the wrong scope it redirects (308) to its one
- * canonical URL. Both happen before streaming, so the status is real.
+ * /packages/[slug]/ - every package page is generated from the database by slug.
+ * Unknown slugs get a real 404 from src/proxy.ts; notFound() is the fallback.
  */
 
-const FALLBACK = { destination: "__none__", package: "__none__" }; // non-empty params (Cache Components rule)
+const FALLBACK = "__none__"; // non-empty params (Cache Components rule)
 
-export async function packageStaticParams(scope: TourScope) {
-  const params = await getPackageParams(scope);
-  return params.length > 0 ? params : [FALLBACK];
+export async function packageStaticParams() {
+  const slugs = await getPackageSlugs();
+  return (slugs.length > 0 ? slugs : [FALLBACK]).map((slug) => ({ slug }));
 }
 
-export async function packageMetadata(scope: TourScope, destinationSlug: string, packageSlug: string) {
-  const p = await getTourPackageBySlug(destinationSlug, packageSlug);
-  if (!p || p.destinationRef.scope !== scope) return {};
+export async function packageMetadata(slug: string) {
+  const p = await getTourPackageBySlug(slug);
+  if (!p) return {};
   const duration = formatDuration(p.durationDays, p.durationNights);
   return buildMetadata({
     title: p.name,
     description:
-      truncateDescription(p.summary ?? p.description) ??
+      truncateDescription(p.summary ?? richTextToPlain(p.description)) ??
       `${p.name}: a ${duration} ${p.destinationRef.name} itinerary from ${siteConfig.name}.`,
     path: p.href,
     image: p.image,
@@ -70,35 +70,23 @@ export async function packageMetadata(scope: TourScope, destinationSlug: string,
   });
 }
 
-export async function PackagePage({
-  scope,
-  destinationSlug,
-  packageSlug,
-}: {
-  scope: TourScope;
-  destinationSlug: string;
-  packageSlug: string;
-}) {
-  const pkg = await getTourPackageBySlug(destinationSlug, packageSlug);
+export async function PackagePage({ slug }: { slug: string }) {
+  const pkg = await getTourPackageBySlug(slug);
   if (!pkg) notFound();
-  if (pkg.destinationRef.scope !== scope) {
-    const actual = await getPackageScope(destinationSlug, packageSlug);
-    if (actual) permanentRedirect(routes.tour(actual, destinationSlug, packageSlug));
-    notFound();
-  }
 
-  const [related, reviews, faqs, guides] = await Promise.all([
+  const [related, reviews, faqs, guides, rating] = await Promise.all([
     getRelatedPackages(pkg),
     getPackageReviews(pkg.id),
-    getPackageFAQs(destinationSlug, packageSlug),
+    getPackageFAQs(slug),
     // Guides come from the top-level destination (Vietnam), not a city inside it.
     getDestinationGuides(pkg.topDestinationSlug, 3),
+    getRatingSummary(pkg.id),
   ]);
 
   const duration = formatDuration(pkg.durationDays, pkg.durationNights);
   const priceText =
     pkg.price.amount !== null ? `From ${formatPrice(pkg.price.amount, pkg.price.currency)}` : "Price on request";
-  const planHref = routes.planTrip({ destination: pkg.destinationRef.name, package: pkg.name });
+  const planHref = routes.planTrip({ package: pkg.slug });
   const meals = countMeals(pkg.itinerary);
   const places = [...new Set(pkg.itinerary.map((d) => d.location).filter(Boolean))];
   const nights = pkg.hotels.filter((h) => !h.isOption).reduce((n, h) => n + h.nights, 0);
@@ -209,10 +197,13 @@ export async function PackagePage({
         </Section>
       )}
 
+      <PricingSection plans={pkg.prices} />
+      <DeparturesSection departures={pkg.departures} enquireHref={planHref} />
       <StaysAndMealsSection hotels={pkg.hotels} meals={meals} />
       <InclusionsSection included={pkg.inclusions} excluded={pkg.exclusions} />
       <VisaSummaryBlock id="visa-title" visa={pkg.visa} />
       <ImportantInfoSection text={pkg.importantInfo} />
+      <PoliciesSection policies={pkg.policies} />
       <TravellerStories reviews={reviews} id="reviews-title" title="What travellers say" />
       <FaqSection id="faq-title" title="Frequently asked questions" items={faqs} showAllLink={false} />
 
@@ -225,7 +216,7 @@ export async function PackagePage({
         </Section>
       )}
 
-      <JournalPreview id="guides-title" eyebrow="Travel Journal" title="Before you go" articles={guides} />
+      <JournalPreview id="guides-title" eyebrow="From the blog" title="Before you go" articles={guides} />
 
       <CTASection
         id="cta-title"
@@ -236,7 +227,7 @@ export async function PackagePage({
         secondary={{ label: "Contact us", href: routes.contact() }}
       />
 
-      <JsonLd data={tourSchemas(pkg, reviews)} />
+      <JsonLd data={tourSchemas(pkg, reviews, rating)} />
     </>
   );
 }

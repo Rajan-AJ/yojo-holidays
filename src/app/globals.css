@@ -249,3 +249,14 @@ dialog.mobile-menu[open] {
     scroll-behavior: auto !important;
   }
 }
+
+/* Admin rich-text editor (Tiptap) */
+.prose-admin h2 { font-family: var(--font-display); font-size: 1.4rem; margin: 1.1rem 0 0.4rem; }
+.prose-admin h3 { font-family: var(--font-display); font-size: 1.15rem; margin: 1rem 0 0.35rem; }
+.prose-admin h4 { font-weight: 600; margin: 0.9rem 0 0.3rem; }
+.prose-admin p { margin: 0.5rem 0; }
+.prose-admin ul { list-style: disc; padding-left: 1.4rem; }
+.prose-admin ol { list-style: decimal; padding-left: 1.4rem; }
+.prose-admin blockquote { border-left: 2px solid var(--color-accent); padding-left: 1rem; font-style: italic; }
+.prose-admin a { text-decoration: underline; text-underline-offset: 3px; }
+.prose-admin p.is-editor-empty:first-child::before { content: "Start writing…"; color: var(--color-muted); float: left; height: 0; pointer-events: none; }

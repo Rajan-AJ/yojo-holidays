@@ -1,0 +1,7 @@
+# Keep LF line endings in the repository on every OS (migrations, scripts, Vercel builds).
+* text=auto eol=lf
+*.woff2 binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.ico binary

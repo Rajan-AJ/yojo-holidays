@@ -65,7 +65,7 @@ function PackageCard({ tour }: { tour: TourSummary }) {
           </div>
         )}
         {tour.categories[0] && (
-          <span className="absolute bottom-3 left-3 rounded-full bg-black/50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white backdrop-blur-sm">
+          <span className="absolute bottom-3 left-3 rounded-full bg-black/50 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-white backdrop-blur-sm">
             {tour.categories[0]}
           </span>
         )}
@@ -73,11 +73,11 @@ function PackageCard({ tour }: { tour: TourSummary }) {
 
       <div className="flex flex-1 flex-col p-5">
         <div className="mb-1.5 flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-1 text-[11.5px] font-bold uppercase tracking-wide text-brand-teal-dark">
+          <span className="flex min-w-0 items-center gap-1 text-xs font-bold uppercase tracking-wide text-brand-teal-dark">
             <Icon name="map" className="size-3.5 shrink-0" />
             <span className="truncate">{tour.destination}</span>
           </span>
-          <span className="shrink-0 text-[11.5px] font-medium text-gray-400">
+          <span className="shrink-0 text-xs font-medium text-gray-400">
             {formatDuration(tour.durationDays, tour.durationNights)}
           </span>
         </div>
@@ -93,7 +93,7 @@ function PackageCard({ tour }: { tour: TourSummary }) {
             {tour.categories.slice(1, 4).map((category) => (
               <li
                 key={category}
-                className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-600"
+                className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600"
               >
                 <Icon name="check" className="size-3 text-brand-teal-dark" />
                 {category}
@@ -105,16 +105,16 @@ function PackageCard({ tour }: { tour: TourSummary }) {
         <div className="mt-auto flex items-end justify-between gap-3 pt-2">
           {tour.price.amount === null ? (
             <div>
-              <p className="mb-0.5 text-[11px] text-gray-400">Price</p>
+              <p className="mb-0.5 text-xs text-gray-400">Price</p>
               <p className="font-display text-[15px] font-bold text-brand-navy">On request</p>
             </div>
           ) : (
             <div>
-              <p className="mb-0.5 text-[11px] text-gray-400">Starting from</p>
+              <p className="mb-0.5 text-xs text-gray-400">Starting from</p>
               <p className="font-display text-[22px] font-extrabold leading-none text-brand-pink">
                 {formatPrice(tour.price.amount, tour.price.currency)}
               </p>
-              <p className="text-[11px] text-gray-400">per person</p>
+              <p className="text-xs text-gray-400">per person</p>
             </div>
           )}
           <span

@@ -1,13 +1,15 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
-import type { GuideCategory, TourFilters, TourPackageDetail, TourScope, VisaPurpose } from "@/types/content";
+import type { TourFilters, TourPackageDetail, TourScope, VisaPurpose } from "@/types/content";
 import { visaConfig } from "@/config/site";
 import * as destinations from "@/server/repositories/destinations";
 import * as packages from "@/server/repositories/packages";
 import * as visa from "@/server/repositories/visa";
-import * as guides from "@/server/repositories/guides";
+import * as blog from "@/server/repositories/blog";
 import * as engagement from "@/server/repositories/engagement";
 import * as search from "@/server/repositories/search";
+import * as settings from "@/server/repositories/settings";
+import * as pages from "@/server/repositories/pages";
 import { tags } from "./cache-tags";
 
 /**
@@ -16,24 +18,42 @@ import { tags } from "./cache-tags";
  * CACHING STRATEGY
  * - Every function is a "use cache" wrapper around a repository function, so
  *   results are shared across requests and pages are prerendered at build.
- * - cacheLife("hours"): cached results are refreshed in the background at
- *   most about an hour after they go stale. Until the admin (Phase 11) calls
- *   revalidateTag() on save, this bounds how long an edit takes to appear.
- * - cacheTag(): each result is tagged by entity (see cache-tags.ts) so the
- *   admin can purge exactly what changed, immediately.
- * - Search results depend on free text, so they are cached briefly
- *   ("minutes") to avoid filling the cache with one-off queries.
+ * - cacheLife("hours") bounds staleness; the admin calls revalidateTag() on
+ *   save/publish so edits appear immediately (src/server/admin/revalidate.ts).
+ * - Search depends on free text, so it is cached briefly ("minutes").
  *
- * Keep these thin: data shaping lives in the repositories, which are also
- * used and tested outside Next (scripts/verify-data.ts).
+ * Keep these thin: data shaping lives in the repositories.
  */
+
+// ---- Site -------------------------------------------------------------------
+
+export async function getSiteSettings() {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(tags.settings);
+  return settings.findSiteSettings();
+}
+
+export async function getCmsPage(slug: string) {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(tags.pages, tags.faqs);
+  return pages.findPageBySlug(slug);
+}
+
+export async function getCmsPageSlugs() {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(tags.pages);
+  return pages.findCmsPageSlugs();
+}
 
 // ---- Geography --------------------------------------------------------------
 
 export async function getRegionsWithCountries() {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.countries);
+  cacheTag(tags.countries, tags.destinations);
   return destinations.findRegionsWithCountries();
 }
 
@@ -60,7 +80,6 @@ export async function getTopLevelDestinations(scope?: TourScope) {
   return destinations.findTopLevelDestinations(scope);
 }
 
-/** Includes country, region, places inside it, related destinations and visa summary. */
 export async function getDestinationBySlug(slug: string) {
   "use cache";
   cacheLife("hours");
@@ -68,18 +87,11 @@ export async function getDestinationBySlug(slug: string) {
   return destinations.findDestinationBySlug(slug);
 }
 
-export async function getDestinationSlugs(scope: TourScope) {
+export async function getDestinationSlugs() {
   "use cache";
   cacheLife("hours");
   cacheTag(tags.destinations);
-  return destinations.findDestinationSlugs(scope);
-}
-
-export async function getDestinationScope(slug: string) {
-  "use cache";
-  cacheLife("hours");
-  cacheTag(tags.destinations, tags.destination(slug));
-  return destinations.findDestinationScope(slug);
+  return destinations.findDestinationSlugs();
 }
 
 export async function getDestinationPackages(destinationSlug: string) {
@@ -92,15 +104,15 @@ export async function getDestinationPackages(destinationSlug: string) {
 export async function getDestinationGuides(destinationSlug: string, limit = 3) {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.guides, tags.destination(destinationSlug));
-  return guides.findLatestGuides({ destinationSlug, limit });
+  cacheTag(tags.blog, tags.destination(destinationSlug));
+  return blog.findLatestPosts({ destinationSlug, limit });
 }
 
 export async function getDestinationFAQs(destinationSlug: string) {
   "use cache";
   cacheLife("hours");
   cacheTag(tags.faqs, tags.destination(destinationSlug));
-  return engagement.findFaqsForDestination(destinationSlug);
+  return destinations.findFaqsForDestination(destinationSlug);
 }
 
 // ---- Tour packages ----------------------------------------------------------
@@ -112,7 +124,6 @@ export async function getFeaturedPackages(limit?: number, filters?: TourFilters)
   return packages.findFeaturedPackages(limit, filters);
 }
 
-/** Listing with filters (destination, duration, category, price). */
 export async function getPackages(filters: TourFilters) {
   "use cache";
   cacheLife("hours");
@@ -130,38 +141,27 @@ export async function getListingFacets(base: Pick<TourFilters, "scope" | "catego
 export async function getPackagesByCategory(categorySlug: string) {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.packages);
+  cacheTag(tags.packages, tags.categories);
   return packages.findPackages({ category: categorySlug });
 }
 
-/**
- * The whole package page in one query: itinerary, hotels, highlights,
- * inclusions/exclusions, gallery and visa summary come back together
- * (no request waterfall), so there are no separate itinerary/hotel calls.
- */
-export async function getTourPackageBySlug(destinationSlug: string, packageSlug: string) {
+/** The whole package page in one query (itinerary, hotels, prices, gallery, visa). */
+export async function getTourPackageBySlug(slug: string) {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.packages, tags.package(destinationSlug, packageSlug), tags.visa);
-  return packages.findPackageBySlug(destinationSlug, packageSlug);
+  cacheTag(tags.packages, tags.package(slug), tags.visa);
+  return packages.findPackageBySlug(slug);
 }
 
-export async function getPackageParams(scope: TourScope) {
+export async function getPackageSlugs() {
   "use cache";
   cacheLife("hours");
   cacheTag(tags.packages);
-  return packages.findPackageParams(scope);
-}
-
-export async function getPackageScope(destinationSlug: string, packageSlug: string) {
-  "use cache";
-  cacheLife("hours");
-  cacheTag(tags.packages, tags.package(destinationSlug, packageSlug));
-  return packages.findPackageScope(destinationSlug, packageSlug);
+  return packages.findPackageSlugs();
 }
 
 export async function getRelatedPackages(
-  pkg: Pick<TourPackageDetail, "id" | "destinationRef" | "destinationAncestors" | "categoryRefs" | "durationDays">,
+  pkg: Pick<TourPackageDetail, "id" | "topDestinationSlug" | "categoryRefs" | "durationDays">,
 ) {
   "use cache";
   cacheLife("hours");
@@ -169,11 +169,11 @@ export async function getRelatedPackages(
   return packages.findRelatedPackages(pkg);
 }
 
-export async function getPackageFAQs(destinationSlug: string, packageSlug: string) {
+export async function getPackageFAQs(slug: string) {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.faqs, tags.package(destinationSlug, packageSlug));
-  return engagement.findFaqsForPackage(destinationSlug, packageSlug);
+  cacheTag(tags.faqs, tags.package(slug));
+  return packages.findFaqsForPackage(slug);
 }
 
 export async function getPackageReviews(packageId: string) {
@@ -181,6 +181,13 @@ export async function getPackageReviews(packageId: string) {
   cacheLife("hours");
   cacheTag(tags.reviews);
   return engagement.findPublishedReviews({ packageId, limit: 6 });
+}
+
+export async function getRatingSummary(packageId?: string) {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(tags.reviews);
+  return engagement.findRatingSummary(packageId);
 }
 
 export async function getShowcaseItinerary() {
@@ -195,21 +202,21 @@ export async function getShowcaseItinerary() {
 export async function getTourCategories() {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.packages);
+  cacheTag(tags.categories, tags.packages);
   return packages.findTourCategories();
 }
 
 export async function getTourCategoryBySlug(slug: string) {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.packages);
+  cacheTag(tags.categories, tags.packages);
   return packages.findTourCategoryBySlug(slug);
 }
 
 export async function getTourCategorySlugs() {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.packages);
+  cacheTag(tags.categories);
   return packages.findTourCategorySlugs();
 }
 
@@ -222,7 +229,6 @@ export async function getVisaPassports() {
   return visa.findVisaPassports();
 }
 
-/** All published guides (all passports unless one is given). */
 export async function getVisaGuides(passportIso?: string) {
   "use cache";
   cacheLife("hours");
@@ -239,24 +245,24 @@ export async function getVisaDestinations() {
   return guides.map((g) => ({ slug: g.countrySlug, name: g.countryName }));
 }
 
-export async function getVisaCountryBySlug(countrySlug: string, passportIso?: string) {
+export async function getVisaCountryBySlug(slug: string) {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.visa, tags.visaCountry(countrySlug));
-  return visa.findVisaCountryBySlug(countrySlug, passportIso);
+  cacheTag(tags.visa, tags.visaCountry(slug));
+  return visa.findVisaCountryBySlug(slug);
 }
 
-export async function getVisaTypeBySlug(countrySlug: string, typeSlug: string) {
+export async function getVisaTypeBySlug(guideSlug: string, typeSlug: string) {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.visa, tags.visaCountry(countrySlug));
-  return visa.findVisaTypeBySlug(countrySlug, typeSlug);
+  cacheTag(tags.visa, tags.visaCountry(guideSlug));
+  return visa.findVisaTypeBySlug(guideSlug, typeSlug);
 }
 
 export async function findVisaMatch(passportIso: string, countrySlug: string, purpose: VisaPurpose) {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.visa, tags.visaCountry(countrySlug));
+  cacheTag(tags.visa);
   return visa.findVisaMatch(passportIso, countrySlug, purpose);
 }
 
@@ -281,7 +287,6 @@ export async function getVisaFAQs() {
   return visa.findGeneralVisaFaqs();
 }
 
-/** Related content for a country's visa page. */
 export async function getCountryPackages(countrySlug: string, limit = 3) {
   "use cache";
   cacheLife("hours");
@@ -292,8 +297,8 @@ export async function getCountryPackages(countrySlug: string, limit = 3) {
 export async function getCountryGuides(countrySlug: string, limit = 3) {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.guides);
-  return guides.findLatestGuides({ countrySlug, limit });
+  cacheTag(tags.blog);
+  return blog.findLatestPosts({ countrySlug, limit });
 }
 
 export async function getCountryDestinations(countrySlug: string) {
@@ -303,25 +308,55 @@ export async function getCountryDestinations(countrySlug: string) {
   return destinations.findDestinationsByCountry(countrySlug);
 }
 
-// ---- Travel Journal ---------------------------------------------------------
+// ---- Blog -------------------------------------------------------------------
 
 export async function getLatestGuides(options?: {
   limit?: number;
-  category?: GuideCategory;
+  category?: string;
   destinationSlug?: string;
   countrySlug?: string;
+  tag?: string;
+  before?: { publishedAt: string; id: string };
 }) {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.guides);
-  return guides.findLatestGuides(options);
+  cacheTag(tags.blog);
+  return blog.findLatestPosts(options);
 }
 
 export async function getTravelGuideBySlug(slug: string) {
   "use cache";
   cacheLife("hours");
-  cacheTag(tags.guides, tags.guide(slug));
-  return guides.findGuideBySlug(slug);
+  cacheTag(tags.blog, tags.post(slug));
+  return blog.findPostBySlug(slug);
+}
+
+export async function getBlogCategories() {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(tags.blog);
+  return blog.findBlogCategories();
+}
+
+export async function getBlogCategoryBySlug(slug: string) {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(tags.blog);
+  return blog.findBlogCategoryBySlug(slug);
+}
+
+export async function getPostSlugs() {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(tags.blog);
+  return blog.findPostSlugs();
+}
+
+export async function getBlogCategorySlugs() {
+  "use cache";
+  cacheLife("hours");
+  cacheTag(tags.blog);
+  return blog.findBlogCategorySlugs();
 }
 
 // ---- FAQs and reviews -------------------------------------------------------

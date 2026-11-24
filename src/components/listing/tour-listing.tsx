@@ -99,7 +99,7 @@ export async function TourListing({ base, path, searchParams }: Props) {
           <div className="flex items-center gap-5 sm:col-span-2 lg:ml-auto">
             <Button type="submit">Show tours</Button>
             {active && (
-              <Link href={path} className="text-body-sm underline underline-offset-4 hover:text-accent-strong">
+              <Link href={path} className="inline-flex min-h-11 items-center text-body-sm underline underline-offset-4 hover:text-accent-strong">
                 Clear filters
               </Link>
             )}

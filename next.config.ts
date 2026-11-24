@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 
+const supabaseHost = process.env.NEXT_PUBLIC_SUPABASE_URL
+  ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname
+  : undefined;
+
 const nextConfig: NextConfig = {
   // Cache Components: pages are dynamic by default; we opt into caching with
   // "use cache" in the data layer. Gives a static shell + streamed data (PPR).
@@ -43,9 +47,12 @@ const nextConfig: NextConfig = {
     // Required allowlist since Next 16. 75 is the default quality.
     qualities: [75],
     remotePatterns: [
-      // PLACEHOLDER photography (src/content/home.ts and prisma/seed.ts). Remove
-      // once the client's images live in the media store, and add that host
-      // (e.g. Vercel Blob / S3) instead.
+      // Supabase Storage (public "media" bucket). Host comes from the env.
+      ...(supabaseHost
+        ? [{ protocol: "https" as const, hostname: supabaseHost, pathname: "/storage/v1/object/public/**" }]
+        : []),
+      // PLACEHOLDER photography (src/content/home.ts and supabase/seed.sql).
+      // Remove once the client's real images are uploaded.
       { protocol: "https", hostname: "images.unsplash.com", pathname: "/photo-*" },
     ],
   },

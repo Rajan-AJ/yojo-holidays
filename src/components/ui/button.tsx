@@ -12,7 +12,8 @@ export type ButtonVariant =
 export type ButtonSize = "sm" | "md" | "lg";
 
 const base =
-  "group/button relative inline-flex items-center justify-center gap-2 whitespace-nowrap text-button font-medium " +
+  // Labels may wrap on narrow phones (min-h lets the button grow) instead of overflowing the viewport.
+  "group/button relative inline-flex max-w-full items-center justify-center gap-2 text-center text-button font-medium sm:whitespace-nowrap " +
   "transition-[background-color,border-color,color,opacity,translate] duration-(--duration-base) ease-(--ease-editorial) " +
   "active:translate-y-px disabled:pointer-events-none disabled:opacity-45 aria-disabled:pointer-events-none aria-disabled:opacity-45";
 

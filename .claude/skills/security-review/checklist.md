@@ -1,7 +1,10 @@
 # Checklist
 
 ## Data boundary
-- [ ] No Prisma / `@/lib/db` / `@/server/*` import reachable from a `"use client"` file
+- [ ] No `pg` / `@/lib/db` / `@/server/*` import reachable from a `"use client"` file
+- [ ] SQL: user values only through `$n` parameters (no string-built SQL from input)
+- [ ] New tables: RLS enabled + policies in the migration; no `to authenticated using (true)`; private data not on publicly readable tables
+- [ ] `SUPABASE_SERVICE_ROLE_KEY` / `DATABASE_URL` never referenced from client code or `NEXT_PUBLIC_*`
 - [ ] New server files import `server-only`
 - [ ] Repositories don't leak internal fields (ids used in URLs, `isSample`, admin notes)
 
